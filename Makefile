@@ -174,6 +174,7 @@ UPROGS=\
 	_kill\
 	_ln\
 	_ls\
+	_lspci\
 	_mkdir\
 	_rm\
 	_sh\
