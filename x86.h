@@ -22,6 +22,10 @@ static inline void outw(ushort port, ushort data) {
   asm volatile("out %0,%1" : : "a"(data), "d"(port));
 }
 
+static inline void outdw(ushort port, long data) {
+  asm volatile("out %0,%1" : : "a"(data), "d"(port));
+}
+
 static inline void outsl(int port, const void *addr, int cnt) {
   asm volatile("cld; rep outsl"
                : "=S"(addr), "=c"(cnt)
