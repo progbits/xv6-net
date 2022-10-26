@@ -58,9 +58,29 @@ unsigned long find_mmio_base() {
 }
 
 // Read the device MAC address from EEPROM.
-void read_mac_addr(long mmio_base) {
-  const ushort EECD = 0x14; // EEPROM control/data.
-  const ushort EERD = 0x14; // EEPROM read.
+void read_mac_addr(unsigned long mmio_base) {
+  const ushort EERD = 0x14; // EEPROM register offset.
+  const unsigned long EEPROM_DONE = 0x00000010;
+
+  // MAC address is stored in first 6 bytes of EEPROM.
+  uchar mac_addr[6];
+  for (int i = 0; i < 3; i++) {
+    unsigned long addr = mmio_base + EERD;
+    *(unsigned long *)(addr) = 0x00000001 | i << 8;
+    unsigned long result = 0x0;
+    while (!(result & EEPROM_DONE)) {
+      result = *(unsigned long *)(addr);
+      cprintf(""); // TODO - Why does this block forever without this?
+    };
+    ushort part = (*(unsigned long *)(addr)) >> 16;
+    memcpy(mac_addr + i * sizeof(ushort), &part, sizeof(ushort));
+  }
+
+  cprintf("%0x");
+  for (int i = 0; i < 6; i++) {
+    cprintf("%x", mac_addr[i]);
+  }
+  cprintf("\n");
 }
 
 int sys_lspci(void) {
@@ -69,5 +89,8 @@ int sys_lspci(void) {
     panic("failed to determine base address");
   }
   cprintf("mmio base address: 0x%x\n", mmio_base);
+
+  read_mac_addr(mmio_base);
+
   return 0;
 }
