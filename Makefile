@@ -71,7 +71,7 @@ QEMU = $(shell if which qemu > /dev/null; \
 	echo "*** or have you tried setting the QEMU variable in Makefile?" 1>&2; \
 	echo "***" 1>&2; exit 1)
 endif
-QEMUEXTRA = -nic model=e1000
+QEMUEXTRA = -nic model=e1000,mac=de:ad:be:ef:23:45
 
 CC = $(TOOLPREFIX)gcc
 AS = $(TOOLPREFIX)gas
