@@ -58,12 +58,14 @@ unsigned long find_mmio_base() {
 }
 
 // Read the device MAC address from EEPROM.
-void read_mac_addr(unsigned long mmio_base) {
+char *read_mac_addr(unsigned long mmio_base) {
   const ushort EERD = 0x14; // EEPROM register offset.
   const unsigned long EEPROM_DONE = 0x00000010;
 
+  // TODO - Check return value.
+  char *mem = kalloc();
+
   // MAC address is stored in first 6 bytes of EEPROM.
-  uchar mac_addr[6];
   for (int i = 0; i < 3; i++) {
     volatile unsigned long addr = mmio_base + EERD;
     *(unsigned long *)(addr) = 0x00000001 | i << 8;
@@ -72,14 +74,9 @@ void read_mac_addr(unsigned long mmio_base) {
       result = *(unsigned long *)(addr);
     };
     ushort part = (*(unsigned long *)(addr)) >> 16;
-    memcpy(mac_addr + i * sizeof(ushort), &part, sizeof(ushort));
+    memcpy(mem + i * sizeof(ushort), &part, sizeof(ushort));
   }
-
-  cprintf("%0x");
-  for (int i = 0; i < 6; i++) {
-    cprintf("%x", mac_addr[i]);
-  }
-  cprintf("\n");
+  return mem;
 }
 
 int sys_lspci(void) {
@@ -89,7 +86,12 @@ int sys_lspci(void) {
   }
   cprintf("mmio base address: 0x%x\n", mmio_base);
 
-  read_mac_addr(mmio_base);
+  char *mac_addr = read_mac_addr(mmio_base);
+  cprintf("%0x");
+  for (int i = 0; i < 6; i++) {
+    cprintf("%x", mac_addr[i] & 0x000000FF);
+  }
+  cprintf("\n");
 
   return 0;
 }
