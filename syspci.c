@@ -65,12 +65,11 @@ void read_mac_addr(unsigned long mmio_base) {
   // MAC address is stored in first 6 bytes of EEPROM.
   uchar mac_addr[6];
   for (int i = 0; i < 3; i++) {
-    unsigned long addr = mmio_base + EERD;
+    volatile unsigned long addr = mmio_base + EERD;
     *(unsigned long *)(addr) = 0x00000001 | i << 8;
     unsigned long result = 0x0;
     while (!(result & EEPROM_DONE)) {
       result = *(unsigned long *)(addr);
-      cprintf(""); // TODO - Why does this block forever without this?
     };
     ushort part = (*(unsigned long *)(addr)) >> 16;
     memcpy(mac_addr + i * sizeof(ushort), &part, sizeof(ushort));
