@@ -47,6 +47,19 @@ unsigned long find_mmio_base() {
     return 0;
   }
 
+  // Read the current command register.
+  unsigned long command = 0x0;
+  for (int i = 5, j = 1; i >= 4; i--, j--) {
+    outdw(PCI_CONFIG_ADDR, (0x80000000 | target_dev << 11) | i);
+    uchar data = inb(PCI_CONFIG_DATA);
+    command = command | (data << (j * 8));
+  }
+
+  // Set the bus master bit and write back the command register.
+  command |= 1 << 2;
+  outdw(PCI_CONFIG_ADDR, (0x80000000 | target_dev << 11) | 4);
+  outdw(PCI_CONFIG_DATA, command);
+
   // Assume the address we want is in the first BAR register.
   unsigned long mmio_addr = 0x0;
   for (int i = 19, j = 3; i >= 16; i--, j--) {
