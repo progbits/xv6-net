@@ -63,6 +63,10 @@ void trap(struct trapframe *tf) {
     uartintr();
     lapiceoi();
     break;
+  case T_IRQ0 + IRQ_PCI0:
+    e1000_intr();
+    lapiceoi();
+    break;
   case T_IRQ0 + 7:
   case T_IRQ0 + IRQ_SPURIOUS:
     cprintf("cpu%d: spurious interrupt at %x:%x\n", cpuid(), tf->cs, tf->eip);

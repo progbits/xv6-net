@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "defs.h"
 #include "memlayout.h"
+#include "traps.h"
 
 // PCI Constants.
 const short PCI_CONFIG_ADDR = 0xCF8;
@@ -37,6 +38,9 @@ static struct e1000 {
   char mac[6];    // The cards EEPROM configured MAC address.
   char *txn_buf;  // Page sized buffer holding transmit descriptors.
 } e1000;
+
+// Read a main function register.
+uint read_reg(uint reg) { return *(uint *)(e1000.mmio_base + reg); }
 
 // Write a main function register.
 void write_reg(uint reg, uint value) {
@@ -165,9 +169,23 @@ void init_txn() {
   write_reg(TIPG, 0xA);
 }
 
+// Initialize interrupts.
+void init_intr() {
+  // Enable transmit descriptor write-back and recieve timer interrupts.
+  write_reg(IMS, (1 << 0) | (1 << 7));
+}
+
+// Main interrupt handler.
+void e1000_intr() {
+  // Read the interrupt register to clear interrupts.
+  read_reg(ICR);
+}
+
 int sys_lspci(void) {
   detect_e1000();
   init();
   init_txn();
+  init_intr();
+  ioapicenable(IRQ_PCI0, 0);
   return 0;
 }
