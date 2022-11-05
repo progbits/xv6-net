@@ -31,18 +31,23 @@ const uint GPTC = 0x04080;
 const uint TPT = 0x040D4;
 const uint PBM_START = 0x10000;
 
-// Find the memory mapped i/o base address of the attached Intel 8254x family
-// card. It is assumed that the memory mapped address is held in the first BAR
-// register.
-unsigned long find_mmio_base() {
-  const ushort VENDOR_ID = 0x8086; // Intel
-  const ushort DEVICE_ID = 0x100E; // 82540EM Gigabit Ethernet Controller
+static struct e1000 {
+  uint mmio_base; // The base address of the cards MMIO region.
+  char mac[6];    // The cards EEPROM configured MAC address.
+} e1000;
 
+// Locate an attached Intel 8254x family ethernet card and record its
+// MMIO base address. It is assumed that the memory mapped address is
+// held in the first BAR register.
+//
+// As we are reading the PCI configuration space, we also ensure the
+// card is configured to act as a bus master for DMA.
+void detect_e1000() {
   // Because we tightly control the environment, assume that the ethernet
   // controller is on one of the first 4 pci devices on the first bus.
   int target_dev = -1; // Set when the target device is found.
   for (int dev = 0; dev < 4; dev++) {
-    const unsigned long addr = 0x80000000 | dev << 11;
+    const uint addr = 0x80000000 | dev << 11;
 
     ushort vendor_id = 0x0;
     for (int i = 1; i >= 0; i--) {
@@ -66,67 +71,59 @@ unsigned long find_mmio_base() {
   }
 
   if (target_dev == -1) {
+    // Failed to find an 8254x family card.
     return 0;
   }
 
-  // Read the current command register.
-  unsigned long command = 0x0;
+  // Read the current command register, set the bus master bit and write back
+  // the command register.
+  uint command = 0x0;
   for (int i = 5, j = 1; i >= 4; i--, j--) {
     outdw(PCI_CONFIG_ADDR, (0x80000000 | target_dev << 11) | i);
     uchar data = inb(PCI_CONFIG_DATA);
     command = command | (data << (j * 8));
   }
-
-  // Set the bus master bit and write back the command register.
   command |= 1 << 2;
   outdw(PCI_CONFIG_ADDR, (0x80000000 | target_dev << 11) | 4);
   outdw(PCI_CONFIG_DATA, command);
 
   // Assume the address we want is in the first BAR register.
-  unsigned long mmio_addr = 0x0;
+  uint mmio_addr = 0x0;
   for (int i = 19, j = 3; i >= 16; i--, j--) {
     outdw(PCI_CONFIG_ADDR, (0x80000000 | target_dev << 11) | i);
     uchar data = inb(PCI_CONFIG_DATA);
     mmio_addr = mmio_addr | (data << (j * 8));
   }
-  return mmio_addr;
+
+  if (mmio_addr == 0) {
+    panic("failed to determine base address");
+  }
+
+  e1000.mmio_base = mmio_addr;
 }
 
-// Read the device MAC address from EEPROM.
-char *read_mac_addr(unsigned long mmio_base) {
+// General initialization.
+//
+// - Read the device MAC address from EEPROM.
+void init() {
   const ushort EERD = 0x14; // EEPROM register offset.
-  const unsigned long EEPROM_DONE = 0x00000010;
-
-  // TODO - Check return value.
-  char *mem = kalloc();
+  const uint EEPROM_DONE = 0x00000010;
 
   // MAC address is stored in first 6 bytes of EEPROM.
   for (int i = 0; i < 3; i++) {
-    volatile unsigned long addr = mmio_base + EERD;
-    *(unsigned long *)(addr) = 0x00000001 | i << 8;
-    unsigned long result = 0x0;
+    volatile uint addr = e1000.mmio_base + EERD;
+    *(uint *)(addr) = 0x00000001 | i << 8;
+    uint result = 0x0;
     while (!(result & EEPROM_DONE)) {
-      result = *(unsigned long *)(addr);
+      result = *(uint *)(addr);
     };
-    ushort part = (*(unsigned long *)(addr)) >> 16;
-    memcpy(mem + i * sizeof(ushort), &part, sizeof(ushort));
+    ushort part = (*(uint *)(addr)) >> 16;
+    memcpy(e1000.mac + i * sizeof(ushort), &part, sizeof(ushort));
   }
-  return mem;
 }
 
 int sys_lspci(void) {
-  const long mmio_base = find_mmio_base();
-  if (mmio_base == 0) {
-    panic("failed to determine base address");
-  }
-  cprintf("mmio base address: 0x%x\n", mmio_base);
-
-  char *mac_addr = read_mac_addr(mmio_base);
-  cprintf("%0x");
-  for (int i = 0; i < 6; i++) {
-    cprintf("%x", mac_addr[i] & 0x000000FF);
-  }
-  cprintf("\n");
-
+  detect_e1000();
+  init();
   return 0;
 }
