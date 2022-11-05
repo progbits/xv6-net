@@ -153,7 +153,7 @@ void init_txn() {
   // Setup the transmit descriptor buffer registers.
   write_reg(TDBAL, V2P(e1000.txn_buf));
   write_reg(TDBAH, 0x0);
-  write_reg(TDBAH, 1 << 12);
+  write_reg(TDLEN, 1 << 12);
   write_reg(TDH, 0);
   write_reg(TDT, 0);
 
