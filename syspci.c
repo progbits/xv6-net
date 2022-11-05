@@ -6,8 +6,30 @@
 #include "x86.h"
 #include "defs.h"
 
+// PCI Constants.
 const short PCI_CONFIG_ADDR = 0xCF8;
 const short PCI_CONFIG_DATA = 0xCFC;
+
+// Device constants.
+const ushort VENDOR_ID = 0x8086; // Intel
+const ushort DEVICE_ID = 0x100E; // 82540EM Gigabit Ethernet Controller
+
+// E1000 registers.
+const uint CTRL = 0x00000;
+const uint STATUS = 0x00008;
+const uint ICR = 0x000C0;
+const uint IMS = 0x000D0;
+const uint TIPG = 0x00410;
+const uint TDFPC = 0x03430;
+const uint TDBAL = 0x03800;
+const uint TDBAH = 0x03804;
+const uint TDLEN = 0x03808;
+const uint TDH = 0x03810;
+const uint TDT = 0x03818;
+const uint TCTL = 0x00400;
+const uint GPTC = 0x04080;
+const uint TPT = 0x040D4;
+const uint PBM_START = 0x10000;
 
 // Find the memory mapped i/o base address of the attached Intel 8254x family
 // card. It is assumed that the memory mapped address is held in the first BAR
