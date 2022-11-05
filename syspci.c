@@ -5,6 +5,7 @@
 #include "types.h"
 #include "x86.h"
 #include "defs.h"
+#include "memlayout.h"
 
 // PCI Constants.
 const short PCI_CONFIG_ADDR = 0xCF8;
@@ -34,7 +35,13 @@ const uint PBM_START = 0x10000;
 static struct e1000 {
   uint mmio_base; // The base address of the cards MMIO region.
   char mac[6];    // The cards EEPROM configured MAC address.
+  char *txn_buf;  // Page sized buffer holding transmit descriptors.
 } e1000;
+
+// Write a main function register.
+void write_reg(uint reg, uint value) {
+  *(uint *)(e1000.mmio_base + reg) = value;
+}
 
 // Locate an attached Intel 8254x family ethernet card and record its
 // MMIO base address. It is assumed that the memory mapped address is
@@ -122,8 +129,45 @@ void init() {
   }
 }
 
+// Transmission initialization.
+//
+// Reference: Manual - Section 14.5
+//
+// - Allocate a buffer to hold transmission descriptors.
+// - Initialize the transmit descriptor buffer registers.
+// - Setup the transmission control register.
+// - Setup the transmission inter-packet gap register.
+void init_txn() {
+  // Transmit buffer should be 16B aligned. Its page aligned,
+  // so this is fine
+  e1000.txn_buf = kalloc();
+  if (e1000.txn_buf == 0) {
+    panic("failed to allocate transmission buffer\n");
+  }
+  memset(e1000.txn_buf, 0, 1 << 12);
+
+  // Setup the transmit descriptor buffer registers.
+  write_reg(TDBAL, V2P(e1000.txn_buf));
+  write_reg(TDBAH, 0x0);
+  write_reg(TDBAH, 1 << 12);
+  write_reg(TDH, 0);
+  write_reg(TDT, 0);
+
+  // Setup the transmission control TCTL register.
+  uint tctl_reg = 0x0;
+  tctl_reg |= (1 << 1);
+  tctl_reg |= (1 << 3);
+  tctl_reg |= ((0xF) << 4);    // Collision threshold.
+  tctl_reg |= ((0x200) << 12); // Collision distance.
+  write_reg(TCTL, tctl_reg);
+
+  // Setup the transmission inter-packet gap (TIPG) register.
+  write_reg(TIPG, 0xA);
+}
+
 int sys_lspci(void) {
   detect_e1000();
   init();
+  init_txn();
   return 0;
 }
