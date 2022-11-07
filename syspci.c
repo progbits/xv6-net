@@ -21,7 +21,13 @@ const uint CTRL = 0x00000;
 const uint STATUS = 0x00008;
 const uint ICR = 0x000C0;
 const uint IMS = 0x000D0;
+const uint RCTL = 0x00100;
 const uint TIPG = 0x00410;
+const uint RDBAL = 0x02800;
+const uint RDBAH = 0x02804;
+const uint RDLEN = 0x02808;
+const uint RDH = 0x02810;
+const uint RDT = 0x02818;
 const uint TDFPC = 0x03430;
 const uint TDBAL = 0x03800;
 const uint TDBAH = 0x03804;
@@ -31,13 +37,29 @@ const uint TDT = 0x03818;
 const uint TCTL = 0x00400;
 const uint GPTC = 0x04080;
 const uint TPT = 0x040D4;
+const uint RAL = 0x05400;
+const uint RAH = 0x05404;
+const uint MTA_LOW = 0x05200;
+const uint MTA_HIGH = 0x053FC;
 const uint PBM_START = 0x10000;
+
+const uint N_RX_DESC = (1 << 12) / 16;
 
 static struct e1000 {
   uint mmio_base; // The base address of the cards MMIO region.
   char mac[6];    // The cards EEPROM configured MAC address.
-  char *tx_buf;  // Page sized buffer holding transmit descriptors.
+  char *rx_buf;   // Page sized buffer holding recieve descriptors.
+  char **rx_data; // List of page sized receive data buffers.
+  char *tx_buf;   // Page sized buffer holding transmit descriptors.
 } e1000;
+
+// Represents the receive descriptor.
+//
+// Section 3.2.3 Receive Descriptor Format.
+struct rx_desc {
+  ulong addr;
+  ulong fields;
+} rx_desc;
 
 // Read a main function register.
 uint read_reg(uint reg) { return *(uint *)(e1000.mmio_base + reg); }
@@ -133,6 +155,70 @@ void init() {
   }
 }
 
+// Recieve initialization.
+//
+// Reference: Manual - Section 14.4
+//
+// - Program recieve address registers with MAC address.
+// - Zero out the multicast table array.
+// - Allocate a buffer to hold recieve descriptors.
+// - Setup the recieve controler register.
+void init_rx() {
+  // Write MAC address.
+  uint mac_low = 0x0;
+  uint mac_high = 0x0;
+  memcpy(&mac_low, e1000.mac, 4);
+  memcpy(&mac_high, e1000.mac + 4, 2);
+  write_reg(RAL, mac_low);
+  write_reg(RAH, mac_high);
+
+  // Recieve descriptor buffer should be 16B aligned. Its page aligned,
+  // so this is fine
+  e1000.rx_buf = kalloc();
+  if (e1000.rx_buf == 0) {
+    panic("failed to allocate recieve descriptor buffer\n");
+  }
+  memset(e1000.rx_buf, 0, 1 << 12);
+
+  // Setup the recieve descriptor buffer registers.
+  write_reg(RDBAL, V2P(e1000.rx_buf));
+  write_reg(RDBAH, 0x0);
+  write_reg(RDLEN, 1 << 12);
+  write_reg(RDH, 0);
+  write_reg(RDT, 0);
+
+  // Allocate the receive data buffer list and then for each receive descriptor,
+  // allocate a data buffer and write the descriptor.
+  e1000.rx_data = kalloc();
+  for (uint i = 0; i < N_RX_DESC; i++) {
+    e1000.rx_data[i] = kalloc();
+    if (e1000.rx_data[i] == 0) {
+      panic("failed to allocate buffer\n");
+    }
+    memset(e1000.rx_data[i], 0, 1 << 12);
+
+    // Write the descriptor for the buffer.
+    struct rx_desc desc = {
+        .addr = V2P(e1000.rx_data[i]),
+    };
+    memcpy(e1000.rx_buf + (i * sizeof(struct rx_desc)), &desc,
+           sizeof(struct rx_desc));
+  }
+  write_reg(RDT, N_RX_DESC);
+
+  // Setup the recieve control register (RCTL).
+  uint rctl_reg = 0x0;
+  rctl_reg |= (1 << 1);  // Reciever enable.
+  rctl_reg |= (1 << 2);  // Store bad packets.
+  rctl_reg |= (1 << 3);  // Recieve all unicast packets.
+  rctl_reg |= (1 << 4);  // Recieve all multicast packets.
+  rctl_reg |= (1 << 5);  // Recieve long packets.
+  rctl_reg |= (1 << 15); // Accept broadcast packets.
+  rctl_reg |= (3 << 16); // Buffer size (4096 bytes).
+  rctl_reg |= (1 << 25); // Buffer size extension.
+  write_reg(RCTL, rctl_reg);
+}
+
 // Transmission initialization.
 //
 // Reference: Manual - Section 14.5
@@ -172,7 +258,8 @@ void init_tx() {
 // Initialize interrupts.
 void init_intr() {
   // Enable transmit descriptor write-back and recieve timer interrupts.
-  write_reg(IMS, (1 << 0) | (1 << 7));
+  write_reg(IMS,
+            (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 6) | (1 << 7));
 }
 
 // Main interrupt handler.
@@ -184,6 +271,7 @@ void e1000_intr() {
 int sys_lspci(void) {
   detect_e1000();
   init();
+  init_rx();
   init_tx();
   init_intr();
   ioapicenable(IRQ_PCI0, 0);
