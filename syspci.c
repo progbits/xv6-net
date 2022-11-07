@@ -36,7 +36,7 @@ const uint PBM_START = 0x10000;
 static struct e1000 {
   uint mmio_base; // The base address of the cards MMIO region.
   char mac[6];    // The cards EEPROM configured MAC address.
-  char *txn_buf;  // Page sized buffer holding transmit descriptors.
+  char *tx_buf;  // Page sized buffer holding transmit descriptors.
 } e1000;
 
 // Read a main function register.
@@ -141,17 +141,17 @@ void init() {
 // - Initialize the transmit descriptor buffer registers.
 // - Setup the transmission control register.
 // - Setup the transmission inter-packet gap register.
-void init_txn() {
+void init_tx() {
   // Transmit buffer should be 16B aligned. Its page aligned,
   // so this is fine
-  e1000.txn_buf = kalloc();
-  if (e1000.txn_buf == 0) {
+  e1000.tx_buf = kalloc();
+  if (e1000.tx_buf == 0) {
     panic("failed to allocate transmission buffer\n");
   }
-  memset(e1000.txn_buf, 0, 1 << 12);
+  memset(e1000.tx_buf, 0, 1 << 12);
 
   // Setup the transmit descriptor buffer registers.
-  write_reg(TDBAL, V2P(e1000.txn_buf));
+  write_reg(TDBAL, V2P(e1000.tx_buf));
   write_reg(TDBAH, 0x0);
   write_reg(TDLEN, 1 << 12);
   write_reg(TDH, 0);
@@ -184,7 +184,7 @@ void e1000_intr() {
 int sys_lspci(void) {
   detect_e1000();
   init();
-  init_txn();
+  init_tx();
   init_intr();
   ioapicenable(IRQ_PCI0, 0);
   return 0;
