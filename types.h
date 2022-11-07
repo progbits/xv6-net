@@ -1,4 +1,4 @@
-typedef unsigned long long ulong;
+typedef unsigned long int ulong;
 typedef unsigned int uint;
 typedef unsigned short ushort;
 typedef unsigned char uchar;
