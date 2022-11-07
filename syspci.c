@@ -19,6 +19,7 @@ const ushort DEVICE_ID = 0x100E; // 82540EM Gigabit Ethernet Controller
 // E1000 registers.
 const uint CTRL = 0x00000;
 const uint STATUS = 0x00008;
+const ushort EERD = 0x0014;
 const uint ICR = 0x000C0;
 const uint IMS = 0x000D0;
 const uint RCTL = 0x00100;
@@ -69,13 +70,20 @@ void write_reg(uint reg, uint value) {
   *(uint *)(e1000.mmio_base + reg) = value;
 }
 
-// Locate an attached Intel 8254x family ethernet card and record its
-// MMIO base address. It is assumed that the memory mapped address is
-// held in the first BAR register.
+// Initialize an E1000 family ethernet card.
+//
+// By the end of this method, if successful, we will have located an attached
+// Intel 8254x family ethernet card, recorded its MMIO base address and EEPROM
+// based MAC address.
+//
+// When reading the PCI configuration space, It is assumed that the memory
+// mapped address is held in the first BAR register.
 //
 // As we are reading the PCI configuration space, we also ensure the
 // card is configured to act as a bus master for DMA.
-void detect_e1000() {
+void init() {
+  const uint EEPROM_DONE = 0x00000010;
+
   // Because we tightly control the environment, assume that the ethernet
   // controller is on one of the first 4 pci devices on the first bus.
   int target_dev = -1; // Set when the target device is found.
@@ -131,16 +139,7 @@ void detect_e1000() {
   if (mmio_addr == 0) {
     panic("failed to determine base address");
   }
-
   e1000.mmio_base = mmio_addr;
-}
-
-// General initialization.
-//
-// - Read the device MAC address from EEPROM.
-void init() {
-  const ushort EERD = 0x14; // EEPROM register offset.
-  const uint EEPROM_DONE = 0x00000010;
 
   // MAC address is stored in first 6 bytes of EEPROM.
   for (int i = 0; i < 3; i++) {
@@ -269,7 +268,6 @@ void e1000_intr() {
 }
 
 int sys_lspci(void) {
-  detect_e1000();
   init();
   init_rx();
   init_tx();
