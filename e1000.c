@@ -72,16 +72,19 @@ void write_reg(uint reg, uint value) {
 
 // Initialize an E1000 family ethernet card.
 //
-// By the end of this method, if successful, we will have located an attached
-// Intel 8254x family ethernet card, recorded its MMIO base address and EEPROM
-// based MAC address.
+// By the end of this method, if successful, we will have:
+//
+//  - Located an attached Intel 8254x family ethernet card
+//  - Stored the MMIO base address
+//  - Stored the EEPROM based MAC address
+//  - Configured the card as a bus master
+//  - Setup receive functions
+//  - Setup transmit functions
+//  - Setup interrupts
 //
 // When reading the PCI configuration space, It is assumed that the memory
 // mapped address is held in the first BAR register.
-//
-// As we are reading the PCI configuration space, we also ensure the
-// card is configured to act as a bus master for DMA.
-void init() {
+void e1000init() {
   const uint EEPROM_DONE = 0x00000010;
 
   // Because we tightly control the environment, assume that the ethernet
@@ -152,6 +155,11 @@ void init() {
     ushort part = (*(uint *)(addr)) >> 16;
     memcpy(e1000.mac + i * sizeof(ushort), &part, sizeof(ushort));
   }
+
+  init_rx();
+  init_tx();
+  init_intr();
+  ioapicenable(IRQ_PCI0, 0);
 }
 
 // Recieve initialization.
@@ -265,13 +273,4 @@ void init_intr() {
 void e1000_intr() {
   // Read the interrupt register to clear interrupts.
   read_reg(ICR);
-}
-
-int sys_lspci(void) {
-  init();
-  init_rx();
-  init_tx();
-  init_intr();
-  ioapicenable(IRQ_PCI0, 0);
-  return 0;
 }

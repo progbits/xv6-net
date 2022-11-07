@@ -1,6 +1,7 @@
 OBJS = \
 	bio.o\
 	console.o\
+	e1000.o\
 	exec.o\
 	file.o\
 	fs.o\
@@ -21,7 +22,6 @@ OBJS = \
 	swtch.o\
 	syscall.o\
 	sysfile.o\
-	syspci.o\
 	sysproc.o\
 	trapasm.o\
 	trap.o\
@@ -176,7 +176,6 @@ UPROGS=\
 	_kill\
 	_ln\
 	_ls\
-	_lspci\
 	_mkdir\
 	_rm\
 	_sh\
