@@ -7,6 +7,7 @@
 #include "defs.h"
 #include "memlayout.h"
 #include "traps.h"
+#include "mmu.h"
 
 // PCI Constants.
 const short PCI_CONFIG_ADDR = 0xCF8;
@@ -44,23 +45,22 @@ const uint MTA_LOW = 0x05200;
 const uint MTA_HIGH = 0x053FC;
 const uint PBM_START = 0x10000;
 
-const uint N_RX_DESC = (1 << 12) / 16;
-
-static struct e1000 {
-  uint mmio_base; // The base address of the cards MMIO region.
-  char mac[6];    // The cards EEPROM configured MAC address.
-  char *rx_buf;   // Page sized buffer holding recieve descriptors.
-  char **rx_data; // List of page sized receive data buffers.
-  char *tx_buf;   // Page sized buffer holding transmit descriptors.
-} e1000;
-
 // Represents the receive descriptor.
 //
 // Section 3.2.3 Receive Descriptor Format.
 struct rx_desc {
-  ulong addr;
-  ulong fields;
+  uint addr[2];
+  uint fields[2];
 } rx_desc;
+
+static struct e1000 {
+  uint mmio_base;     // The base address of the cards MMIO region.
+  char mac[6];        // The cards EEPROM configured MAC address.
+  struct rx_desc *rx; // Page sized buffer holding recieve descriptors.
+  uint rx_count;      // The number of receive descriptors allocated.
+  char **rx_buf;      // List of page sized receive data buffers.
+  char *tx;           // Page sized buffer holding transmit descriptors.
+} e1000;
 
 // Read a main function register.
 uint read_reg(uint reg) { return *(uint *)(e1000.mmio_base + reg); }
@@ -180,38 +180,39 @@ void init_rx() {
   write_reg(RAH, mac_high);
 
   // Recieve descriptor buffer should be 16B aligned. Its page aligned,
-  // so this is fine
-  e1000.rx_buf = kalloc();
-  if (e1000.rx_buf == 0) {
+  // so this is fine.
+  e1000.rx = kalloc();
+  if (e1000.rx == 0) {
     panic("failed to allocate recieve descriptor buffer\n");
   }
-  memset(e1000.rx_buf, 0, 1 << 12);
+  memset(e1000.rx, 0, PGSIZE);
+
+  e1000.rx_count = PGSIZE / sizeof(struct rx_desc);
 
   // Setup the recieve descriptor buffer registers.
-  write_reg(RDBAL, V2P(e1000.rx_buf));
+  write_reg(RDBAL, V2P(e1000.rx));
   write_reg(RDBAH, 0x0);
-  write_reg(RDLEN, 1 << 12);
+  write_reg(RDLEN, PGSIZE);
   write_reg(RDH, 0);
   write_reg(RDT, 0);
 
   // Allocate the receive data buffer list and then for each receive descriptor,
   // allocate a data buffer and write the descriptor.
-  e1000.rx_data = kalloc();
-  for (uint i = 0; i < N_RX_DESC; i++) {
-    e1000.rx_data[i] = kalloc();
-    if (e1000.rx_data[i] == 0) {
+  e1000.rx_buf = kalloc();
+  for (uint i = 0; i < e1000.rx_count; i++) {
+    e1000.rx_buf[i] = kalloc();
+    if (e1000.rx_buf[i] == 0) {
       panic("failed to allocate buffer\n");
     }
-    memset(e1000.rx_data[i], 0, 1 << 12);
+    memset(e1000.rx_buf[i], 0, PGSIZE);
 
     // Write the descriptor for the buffer.
     struct rx_desc desc = {
-        .addr = V2P(e1000.rx_data[i]),
+        .addr = V2P(e1000.rx_buf[i]),
     };
-    memcpy(e1000.rx_buf + (i * sizeof(struct rx_desc)), &desc,
-           sizeof(struct rx_desc));
+    memcpy(&(e1000.rx[i]), &desc, sizeof(struct rx_desc));
   }
-  write_reg(RDT, N_RX_DESC);
+  write_reg(RDT, e1000.rx_count); // One past last valid descriptor.
 
   // Setup the recieve control register (RCTL).
   uint rctl_reg = 0x0;
@@ -237,16 +238,16 @@ void init_rx() {
 void init_tx() {
   // Transmit buffer should be 16B aligned. Its page aligned,
   // so this is fine
-  e1000.tx_buf = kalloc();
-  if (e1000.tx_buf == 0) {
+  e1000.tx = kalloc();
+  if (e1000.tx == 0) {
     panic("failed to allocate transmission buffer\n");
   }
-  memset(e1000.tx_buf, 0, 1 << 12);
+  memset(e1000.tx, 0, PGSIZE);
 
   // Setup the transmit descriptor buffer registers.
-  write_reg(TDBAL, V2P(e1000.tx_buf));
+  write_reg(TDBAL, V2P(e1000.tx));
   write_reg(TDBAH, 0x0);
-  write_reg(TDLEN, 1 << 12);
+  write_reg(TDLEN, PGSIZE);
   write_reg(TDH, 0);
   write_reg(TDT, 0);
 
