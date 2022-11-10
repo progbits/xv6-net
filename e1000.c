@@ -8,6 +8,7 @@
 #include "memlayout.h"
 #include "traps.h"
 #include "mmu.h"
+#include "eth.h"
 
 // PCI Constants.
 const short PCI_CONFIG_ADDR = 0xCF8;
@@ -45,6 +46,12 @@ const uint MTA_LOW = 0x05200;
 const uint MTA_HIGH = 0x053FC;
 const uint PBM_START = 0x10000;
 
+// Ethernet constants.
+// TODO - Should be in eth.h.
+const ushort ETH_TYPE_IPV4 = 0x0800;
+const ushort ETH_TYPE_IPV6 = 0x86DD;
+const ushort ETH_TYPE_ARP = 0x0806;
+
 // Represents the receive descriptor.
 //
 // Section 3.2.3 Receive Descriptor Format.
@@ -60,6 +67,7 @@ static struct e1000 {
   uint rx_count;      // The number of receive descriptors allocated.
   char **rx_buf;      // List of page sized receive data buffers.
   char *tx;           // Page sized buffer holding transmit descriptors.
+  uint packet_count;
 } e1000;
 
 // Read a main function register.
@@ -210,9 +218,9 @@ void init_rx() {
     struct rx_desc desc = {
         .addr = V2P(e1000.rx_buf[i]),
     };
-    memcpy(&(e1000.rx[i]), &desc, sizeof(struct rx_desc));
+    memcpy(&e1000.rx[i], &desc, sizeof(struct rx_desc));
   }
-  write_reg(RDT, e1000.rx_count); // One past last valid descriptor.
+  write_reg(RDT, e1000.rx_count - 1); // One past last valid descriptor.
 
   // Setup the recieve control register (RCTL).
   uint rctl_reg = 0x0;
@@ -272,6 +280,73 @@ void init_intr() {
 
 // Main interrupt handler.
 void e1000_intr() {
-  // Read the interrupt register to clear interrupts.
-  read_reg(ICR);
+  const uint TXDW = 1 << 0;
+  const uint RXT0 = 1 << 7;
+
+  // Read the interrupt register and dispatch to the correct handler.
+  const uint mask = read_reg(ICR);
+  if (mask & TXDW) {
+    cprintf("transmit descriptor writeback\n", mask);
+  } else if (mask & RXT0) {
+    read_packets();
+  }
+}
+
+// Dump all incoming packets.
+void read_packets() {
+  const uint DD = 1 << 0;
+  const uint EOP = 1 << 1;
+
+  // Read the available descriptors.
+  const uint tail = read_reg(RDT);
+  const uint head = read_reg(RDH);
+  uint i = tail % (e1000.rx_count - 1);
+  uint n = head > tail ? head - tail : (e1000.rx_count - tail - 1) + head;
+  for (uint j = 0; j < n; j++) {
+    const uint idx = (i + j) % (e1000.rx_count - 1);
+    const struct rx_desc desc = e1000.rx[idx];
+    const uint packet_size = desc.fields[0] & 0xFF;
+    const uint end_of_packet = ((desc.fields[1]) & EOP) >> 1;
+    const char *buffer = (char *)(P2V(desc.addr[0]));
+
+    cprintf("packet count: %d\n", e1000.packet_count);
+    cprintf("buffer: 0x%x\n", buffer);
+    cprintf("packet size: %d\n", desc.fields[0] & 0xFF);
+    cprintf("end of packet: %d\n", ((desc.fields[1]) & EOP) >> 1);
+
+    if (end_of_packet) {
+      // Read the ethernet header.
+      uint offset = 0;
+      struct eth_hdr hdr;
+      eth_hdr_from_buf(&hdr, buffer);
+      offset += sizeof(struct eth_hdr);
+      switch (hdr.ether_type) {
+      case ETH_TYPE_IPV4: {
+        cprintf("ETH_TYPE_IPV4\n");
+        break;
+      }
+      case ETH_TYPE_IPV6: {
+        cprintf("ETH_TYPE_IPV6\n");
+        break;
+      }
+      case ETH_TYPE_ARP: {
+        cprintf("ETH_TYPE_ARP\n");
+        struct arp_packet packet;
+        arp_packet_from_buf(&packet, buffer + offset);
+        dump_arp_packet(&packet);
+        offset += sizeof(struct arp_packet);
+        break;
+      }
+      default: {
+        cprintf("ETH_TYPE_UNKNOWN\n");
+        break;
+      }
+      }
+      dump_eth_hdr(&hdr);
+    }
+    cprintf("\n\n");
+    ++e1000.packet_count;
+  }
+
+  write_reg(RDT, head == 0 ? e1000.rx_count - 1 : head - 1);
 }

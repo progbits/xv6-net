@@ -2,6 +2,7 @@ OBJS = \
 	bio.o\
 	console.o\
 	e1000.o\
+	eth.o\
 	exec.o\
 	file.o\
 	fs.o\
