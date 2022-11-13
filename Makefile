@@ -23,6 +23,7 @@ OBJS = \
 	swtch.o\
 	syscall.o\
 	sysfile.o\
+	sysnet.o\
 	sysproc.o\
 	trapasm.o\
 	trap.o\
@@ -170,6 +171,7 @@ mkfs: mkfs.c fs.h
 
 UPROGS=\
 	_cat\
+	_curl\
 	_echo\
 	_forktest\
 	_grep\
