@@ -23,7 +23,7 @@ int getpid(void);
 char *sbrk(int);
 int sleep(int);
 int uptime(void);
-int netopen(char *, uint);
+int netopen(uint, uint, uint);
 int netclose(int);
 int netwrite(char *, uint);
 

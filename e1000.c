@@ -8,7 +8,7 @@
 #include "memlayout.h"
 #include "traps.h"
 #include "mmu.h"
-#include "eth.h"
+#include "e1000.h"
 
 // PCI Constants.
 const short PCI_CONFIG_ADDR = 0xCF8;
@@ -46,11 +46,16 @@ const uint MTA_LOW = 0x05200;
 const uint MTA_HIGH = 0x053FC;
 const uint PBM_START = 0x10000;
 
-// Ethernet constants.
-// TODO - Should be in eth.h.
-const ushort ETH_TYPE_IPV4 = 0x0800;
-const ushort ETH_TYPE_IPV6 = 0x86DD;
-const ushort ETH_TYPE_ARP = 0x0806;
+void init_rx();
+void init_tx();
+void init_intr();
+
+// Defined in sysnet.c
+// TODO - This is a bit weird.
+void handle_packet(const char *, uint, int);
+
+// Driver state.
+struct e1000 e1000;
 
 // Represents the receive descriptor.
 //
@@ -60,15 +65,13 @@ struct rx_desc {
   uint fields[2];
 } rx_desc;
 
-static struct e1000 {
-  uint mmio_base;     // The base address of the cards MMIO region.
-  char mac[6];        // The cards EEPROM configured MAC address.
-  struct rx_desc *rx; // Page sized buffer holding recieve descriptors.
-  uint rx_count;      // The number of receive descriptors allocated.
-  char **rx_buf;      // List of page sized receive data buffers.
-  char *tx;           // Page sized buffer holding transmit descriptors.
-  uint packet_count;
-} e1000;
+// Represents the transmit descriptor.
+//
+// Section 3.3.3 Receive Descriptor Format.
+struct tx_desc {
+  uint addr[2];
+  uint opts[2];
+};
 
 // Read a main function register.
 uint read_reg(uint reg) { return *(uint *)(e1000.mmio_base + reg); }
@@ -124,7 +127,7 @@ void e1000init() {
 
   if (target_dev == -1) {
     // Failed to find an 8254x family card.
-    return 0;
+    panic("failed to find card");
   }
 
   // Read the current command register, set the bus master bit and write back
@@ -161,7 +164,7 @@ void e1000init() {
       result = *(uint *)(addr);
     };
     ushort part = (*(uint *)(addr)) >> 16;
-    memcpy(e1000.mac + i * sizeof(ushort), &part, sizeof(ushort));
+    memmove(e1000.mac + i * sizeof(ushort), &part, sizeof(ushort));
   }
 
   init_rx();
@@ -182,14 +185,14 @@ void init_rx() {
   // Write MAC address.
   uint mac_low = 0x0;
   uint mac_high = 0x0;
-  memcpy(&mac_low, e1000.mac, 4);
-  memcpy(&mac_high, e1000.mac + 4, 2);
+  memmove(&mac_low, e1000.mac, 4);
+  memmove(&mac_high, e1000.mac + 4, 2);
   write_reg(RAL, mac_low);
   write_reg(RAH, mac_high);
 
   // Recieve descriptor buffer should be 16B aligned. Its page aligned,
   // so this is fine.
-  e1000.rx = kalloc();
+  e1000.rx = (struct rx_desc *)kalloc();
   if (e1000.rx == 0) {
     panic("failed to allocate recieve descriptor buffer\n");
   }
@@ -206,7 +209,7 @@ void init_rx() {
 
   // Allocate the receive data buffer list and then for each receive descriptor,
   // allocate a data buffer and write the descriptor.
-  e1000.rx_buf = kalloc();
+  e1000.rx_buf = (char **)kalloc();
   for (uint i = 0; i < e1000.rx_count; i++) {
     e1000.rx_buf[i] = kalloc();
     if (e1000.rx_buf[i] == 0) {
@@ -216,9 +219,9 @@ void init_rx() {
 
     // Write the descriptor for the buffer.
     struct rx_desc desc = {
-        .addr = V2P(e1000.rx_buf[i]),
+        .addr = {V2P(e1000.rx_buf[i])},
     };
-    memcpy(&e1000.rx[i], &desc, sizeof(struct rx_desc));
+    memmove(&e1000.rx[i], &desc, sizeof(struct rx_desc));
   }
   write_reg(RDT, e1000.rx_count - 1); // One past last valid descriptor.
 
@@ -286,15 +289,15 @@ void e1000_intr() {
   // Read the interrupt register and dispatch to the correct handler.
   const uint mask = read_reg(ICR);
   if (mask & TXDW) {
-    cprintf("transmit descriptor writeback\n", mask);
+    // TODO - Claim back used descriptors.
   } else if (mask & RXT0) {
-    read_packets();
+    e1000_read();
   }
 }
 
-// Dump all incoming packets.
-void read_packets() {
-  const uint DD = 1 << 0;
+// Read avaliable packets and hand off to the networking layer.
+void e1000_read() {
+  // const uint DD = 1 << 0;
   const uint EOP = 1 << 1;
 
   // Read the available descriptors.
@@ -303,50 +306,50 @@ void read_packets() {
   uint i = tail % (e1000.rx_count - 1);
   uint n = head > tail ? head - tail : (e1000.rx_count - tail - 1) + head;
   for (uint j = 0; j < n; j++) {
+    // Read packet details.
     const uint idx = (i + j) % (e1000.rx_count - 1);
     const struct rx_desc desc = e1000.rx[idx];
     const uint packet_size = desc.fields[0] & 0xFF;
     const uint end_of_packet = ((desc.fields[1]) & EOP) >> 1;
     const char *buffer = (char *)(P2V(desc.addr[0]));
 
+    // Dump some debug information.
     cprintf("packet count: %d\n", e1000.packet_count);
     cprintf("buffer: 0x%x\n", buffer);
     cprintf("packet size: %d\n", desc.fields[0] & 0xFF);
     cprintf("end of packet: %d\n", ((desc.fields[1]) & EOP) >> 1);
 
-    if (end_of_packet) {
-      // Read the ethernet header.
-      uint offset = 0;
-      struct eth_hdr hdr;
-      eth_hdr_from_buf(&hdr, buffer);
-      offset += sizeof(struct eth_hdr);
-      switch (hdr.ether_type) {
-      case ETH_TYPE_IPV4: {
-        cprintf("ETH_TYPE_IPV4\n");
-        break;
-      }
-      case ETH_TYPE_IPV6: {
-        cprintf("ETH_TYPE_IPV6\n");
-        break;
-      }
-      case ETH_TYPE_ARP: {
-        cprintf("ETH_TYPE_ARP\n");
-        struct arp_packet packet;
-        arp_packet_from_buf(&packet, buffer + offset);
-        dump_arp_packet(&packet);
-        offset += sizeof(struct arp_packet);
-        break;
-      }
-      default: {
-        cprintf("ETH_TYPE_UNKNOWN\n");
-        break;
-      }
-      }
-      dump_eth_hdr(&hdr);
-    }
-    cprintf("\n\n");
-    ++e1000.packet_count;
+    // Hand off the packet to the network layer.
+    handle_packet(buffer, packet_size, end_of_packet);
   }
 
+  // Bump the receive tail pointer.
   write_reg(RDT, head == 0 ? e1000.rx_count - 1 : head - 1);
+}
+
+// Transmit a packet.
+void e1000_write(char *buf, uint size) {
+  // TODO - Don't leak pages.
+  char *tx_buf = kalloc();
+  memset(tx_buf, 0, PGSIZE);
+
+  // Write the payload into the transmit buffer.
+  // TODO - Possible buffer overrun.
+  memmove(tx_buf, buf, size);
+  uint offset = size;
+
+  // Setup the transmit descriptor.
+  uint dtyp = 1 << 0;
+  uint dcmd = (1 << 0) | (1 << 3) | (1 << 5);
+  struct tx_desc data_desc = {.addr[0] = V2P(tx_buf),
+                              .addr[1] = 0x0,
+                              .opts[0] = offset | (dtyp << 20) | (dcmd << 24),
+                              .opts[1] = 0x0};
+
+  // Read the tail register to get the offset where we are to write the next
+  // descriptor and write the descriptor to send the packet.
+  const uint tail = read_reg(TDT);
+  memmove(e1000.tx + (tail * sizeof(struct tx_desc)), &data_desc,
+          sizeof(struct tx_desc));
+  write_reg(TDT, tail + 1);
 }

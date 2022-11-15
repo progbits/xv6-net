@@ -4,7 +4,7 @@
 int main(int argc, char *argv[]) {
   printf(1, "opening connection\n");
 
-  const int fd = netopen("127.0.0.1", 0);
+  const int fd = netopen("127.0.0.1", 80, 0);
   printf(1, "opened netfd %d\n", fd);
 
   printf(1, "writing data\n");
