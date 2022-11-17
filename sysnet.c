@@ -22,8 +22,8 @@ const ushort fixed_ip[2] = {0x0A00, 0x0002};
 
 // Represents an ethernet frame header.
 struct eth {
-  uchar dest[6];
-  uchar source[6];
+  ushort dst[3];
+  ushort src[3];
   ushort ether_type;
 };
 
@@ -51,52 +51,24 @@ struct conn {
   char dst_mac[6];
 };
 
-void handle_arp_req(struct arp_packet *);
-void make_arp_req(uint);
-
-// Active connections.
-struct conn conns[NCONN];
-
-ushort __ushort_to_le(ushort value) {
-  return (value << 8) | ((value >> 8) & 0xFF);
-}
-
-void eth_from_buf(struct eth *hdr, char *buffer) {
-  memmove(hdr, buffer, sizeof(struct eth));
-  hdr->ether_type = __ushort_to_le(hdr->ether_type);
-}
+// ------
+// DEBUG.
+// ------
 
 void dump_eth_hdr(struct eth *hdr) {
   cprintf("dest mac: 0x");
-  for (uint i = 0; i < 6; i++) {
-    cprintf("%x", hdr->dest[i] & 0xFF);
+  for (uint i = 0; i < 3; i++) {
+    cprintf("%x", hdr->dst[i] & 0xFFFF);
   }
   cprintf("\n");
 
   cprintf("source mac: 0x");
-  for (uint i = 0; i < 6; i++) {
-    cprintf("%x", hdr->source[i] & 0xFF);
+  for (uint i = 0; i < 3; i++) {
+    cprintf("%x", hdr->src[i] & 0xFFFF);
   }
   cprintf("\n");
 
   cprintf("ether type: 0x%x\n", hdr->ether_type);
-}
-
-void arp_packet_from_buf(struct arp_packet *packet, char *buffer) {
-  memmove(packet, buffer, sizeof(struct arp_packet));
-  packet->htype = __ushort_to_le(packet->htype);
-  packet->ptype = __ushort_to_le(packet->ptype);
-  packet->hlen = __ushort_to_le(packet->hlen);
-  packet->oper = __ushort_to_le(packet->oper);
-  for (uint i = 0; i < 3; i++) {
-    packet->sha[i] = __ushort_to_le(packet->sha[i]);
-    packet->tha[i] = __ushort_to_le(packet->tha[i]);
-  }
-
-  for (uint i = 0; i < 2; i++) {
-    packet->spa[i] = __ushort_to_le(packet->spa[i]);
-    packet->tpa[i] = __ushort_to_le(packet->tpa[i]);
-  }
 }
 
 void dump_arp_packet(struct arp_packet *packet) {
@@ -115,6 +87,89 @@ void dump_arp_packet(struct arp_packet *packet) {
     cprintf("%x", packet->tpa[i] & 0xFFFF);
   }
   cprintf("\n");
+}
+
+// ----------
+// End DEBUG.
+// ----------
+
+void handle_arp_req(struct arp_packet *);
+void make_arp_req(uint);
+
+// Active connections.
+struct conn conns[NCONN];
+
+ushort __ushort_to_le(ushort value) {
+  return (value << 8) | ((value >> 8) & 0xFF);
+}
+
+ushort __ushort_to_be(ushort value) {
+  ushort tmp = value >> 8;
+  return (value << 8) | (tmp & 0xFF);
+}
+
+uint __uint_to_le(uint value) {
+  uint a = (uint)__ushort_to_le(value >> 16);
+  uint b = (uint)__ushort_to_le(value & 0xFFFF);
+  return (b << 16) | a;
+}
+
+uint __uint_to_be(uint value) {
+  uint a = (uint)__ushort_to_be(value & 0xFFFF);
+  uint b = (uint)__ushort_to_be(value >> 16);
+  return (a << 16) | b;
+}
+
+uint eth_from_buf(struct eth *hdr, char *buffer) {
+  memmove(hdr, buffer, sizeof(struct eth));
+  hdr->ether_type = __ushort_to_le(hdr->ether_type);
+  return sizeof(struct eth);
+}
+
+// Write an Ethernet frame header a buffer.
+uint eth_to_buf(struct eth *hdr, char *buf) {
+  struct eth wire;
+  memmove(wire.src, hdr->src, 6);
+  memmove(wire.dst, hdr->dst, 6);
+  wire.ether_type = __ushort_to_be(hdr->ether_type);
+  memmove(buf, &wire, sizeof(struct eth));
+  return sizeof(struct eth);
+}
+
+uint arp_packet_from_buf(struct arp_packet *packet, char *buffer) {
+  memmove(packet, buffer, sizeof(struct arp_packet));
+  packet->htype = __ushort_to_le(packet->htype);
+  packet->ptype = __ushort_to_le(packet->ptype);
+  packet->hlen = __ushort_to_le(packet->hlen);
+  packet->oper = __ushort_to_le(packet->oper);
+  for (uint i = 0; i < 3; i++) {
+    packet->sha[i] = __ushort_to_le(packet->sha[i]);
+    packet->tha[i] = __ushort_to_le(packet->tha[i]);
+  }
+
+  for (uint i = 0; i < 2; i++) {
+    packet->spa[i] = __ushort_to_le(packet->spa[i]);
+    packet->tpa[i] = __ushort_to_le(packet->tpa[i]);
+  }
+  return sizeof(struct arp_packet);
+}
+
+// Write an ARP packet to a buffer.
+uint arp_packet_to_buf(struct arp_packet *packet, char *buf) {
+  struct arp_packet wire;
+  wire.htype = __ushort_to_be(packet->htype);
+  wire.ptype = __ushort_to_be(packet->ptype);
+  wire.hlen = packet->hlen;
+  wire.plen = packet->plen;
+  wire.oper = __ushort_to_be(packet->oper);
+  memmove(wire.sha, packet->sha, 6);
+  memmove(wire.tha, packet->tha, 6);
+  for (int i = 0; i < 2; i++) {
+    wire.spa[i] = __ushort_to_be(packet->spa[i]);
+    wire.tpa[i] = __ushort_to_be(packet->tpa[i]);
+  }
+  memmove(buf, &wire, sizeof(struct arp_packet));
+  return sizeof(struct arp_packet);
 }
 
 // Return the next free network file descriptor.
@@ -185,11 +240,9 @@ int handle_packet(char *buf, uint size, int end_of_packet) {
     break;
   }
   case ETH_TYPE_ARP: {
-    cprintf("ETH_TYPE_ARP\n");
     struct arp_packet packet;
-    arp_packet_from_buf(&packet, buf + offset);
+    offset += arp_packet_from_buf(&packet, buf + offset);
     dump_arp_packet(&packet);
-    offset += sizeof(struct arp_packet);
     handle_arp_req(&packet);
     break;
   }
@@ -204,8 +257,37 @@ int handle_packet(char *buf, uint size, int end_of_packet) {
 }
 
 // Handle an incoming ARP request.
-void handle_arp_req(struct arp_packet *packet) {
-  cprintf("HANDLE ARP REQUEST\n");
+void handle_arp_req(struct arp_packet *req) {
+  // Ignore the packet if it doesn't match our address.
+  if (req->tpa[0] != fixed_ip[0] || req->tpa[1] != fixed_ip[1]) {
+    return;
+  }
+
+  // Allocate a buffer to hold the outgoing frame.
+  char *buf = kalloc();
+  if (buf == 0) {
+    panic("failed to allocate buffer\n");
+  }
+  uint offset = 0;
+
+  // Build the ethernet frame and copy it to the buffer.
+  struct eth frame = {.ether_type = ETH_TYPE_ARP};
+  memmove(frame.src, e1000.mac, 6);
+  memmove(frame.dst, req->sha, 6);
+  offset += eth_to_buf(&frame, buf);
+
+  // Bulid the ARP response and copy it to the buffer.
+  struct arp_packet res = {
+      .htype = 0x1, .ptype = 0x0800, .hlen = 0x6, .plen = 0x4, .oper = 0x2};
+  memmove(res.sha, e1000.mac, 6);
+  memmove(res.tha, req->spa, 6);
+  memmove(res.spa, fixed_ip, 4);
+  memmove(res.tpa, req->spa, 4);
+  offset += arp_packet_to_buf(&res, buf + offset);
+
+  // Write the response and release the buffer.
+  e1000_write(buf, offset);
+  kfree(buf);
 }
 
 // Make an ARP request for a given address.
