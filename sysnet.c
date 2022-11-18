@@ -93,8 +93,8 @@ void dump_arp_packet(struct arp_packet *packet) {
 // End DEBUG.
 // ----------
 
-void handle_arp_req(struct arp_packet *);
-void make_arp_req(uint);
+void handle_arp(struct arp_packet *);
+void arp_req(uint);
 
 // Active connections.
 struct conn conns[NCONN];
@@ -198,7 +198,14 @@ int free_netfd(int netfd) {
 // TODO - We don't have a seperate open(), connect()/accept() flow, so specify
 // direction at creation time?. Specify port separately, for outbound
 // connections interpret as dst_port, for inbound connections, src_port.
-int sys_netopen(uint addr, uint port, uint type) {
+int sys_netopen(void) {
+  int addr;
+  int port;
+  int type;
+  if (argint(0, &addr) < 0 || argint(1, &port) < 0 || argint(0, &type) < 0) {
+    return -1;
+  }
+
   // Find the first free connection slot.
   int netfd = next_free_netfd();
   if (netfd == -1) {
@@ -206,14 +213,16 @@ int sys_netopen(uint addr, uint port, uint type) {
   }
   conns[netfd].netfd = netfd;
   conns[netfd].src_port = netfd; // Map source port 1-1 with fd.
+  memmove(&conns[netfd].dst_addr, &addr, 4);
+  conns[netfd].dst_port = port;
 
   // Resolve the destination MAC address. We do this once per connection, on
   // open.
   // TODO - Global ARP cache.
-  make_arp_req(addr);
+  arp_req(addr);
 
   // Return the netfd used to identify this connection.
-  return netfd;
+  return 0;
 }
 
 int sys_netclose(int netfd) {
@@ -228,40 +237,57 @@ int handle_packet(char *buf, uint size, int end_of_packet) {
   // Read the ethernet header.
   uint offset = 0;
   struct eth hdr;
-  eth_from_buf(&hdr, buf);
-  offset += sizeof(struct eth);
+  offset += eth_from_buf(&hdr, buf);
+
   switch (hdr.ether_type) {
   case ETH_TYPE_IPV4: {
-    cprintf("ETH_TYPE_IPV4\n");
+    // cprintf("ETH_TYPE_IPV4\n");
     break;
   }
   case ETH_TYPE_IPV6: {
-    cprintf("ETH_TYPE_IPV6\n");
+    // cprintf("ETH_TYPE_IPV6\n");
     break;
   }
   case ETH_TYPE_ARP: {
     struct arp_packet packet;
     offset += arp_packet_from_buf(&packet, buf + offset);
-    dump_arp_packet(&packet);
-    handle_arp_req(&packet);
+    // dump_arp_packet(&packet);
+    handle_arp(&packet);
     break;
   }
   default: {
-    cprintf("ETH_TYPE_UNKNOWN\n");
+    // cprintf("ETH_TYPE_UNKNOWN\n");
     break;
   }
   }
-  dump_eth_hdr(&hdr);
+  // dump_eth_hdr(&hdr);
 
   return 1;
 }
 
-// Handle an incoming ARP request.
-void handle_arp_req(struct arp_packet *req) {
+// Handle an incoming ARP packet.
+void handle_arp(struct arp_packet *req) {
   // Ignore the packet if it doesn't match our address.
   if (req->tpa[0] != fixed_ip[0] || req->tpa[1] != fixed_ip[1]) {
     return;
   }
+
+  // Handle ARP response.
+  if (req->oper == 0x2) {
+    // Find the connection related to this response.
+    uint i = 0;
+    for (; i < NCONN; i++) {
+      if (req->spa[0] == ((conns[i].dst_addr >> 16) & 0xFFFF)) {
+        if (req->spa[1] == (conns[i].dst_addr & 0xFFFF)) {
+          memmove(conns[i].dst_mac, req->sha, 6);
+          break;
+        }
+      }
+    }
+    return;
+  }
+
+  // Handle ARP requests.
 
   // Allocate a buffer to hold the outgoing frame.
   char *buf = kalloc();
@@ -291,24 +317,35 @@ void handle_arp_req(struct arp_packet *req) {
 }
 
 // Make an ARP request for a given address.
-void make_arp_req(uint addr) {
-  struct arp_packet req = {
-      .htype = 0x1, .ptype = 0x0800, .hlen = 0x6, .plen = 0x4, .oper = 0x2};
-
-  // Send from our MAC.
-  // TODO - Better way to get this than reaching "down" into the e1000 struct?
-  for (int i = 0; i < 3; i++) {
-    const ushort first = e1000.mac[i * 2] & 0xFF;
-    const ushort second = e1000.mac[i * 2 + 1] & 0xFF;
-    req.sha[i] = (first << 8) | second;
-    req.tha[i] = addr;
+void arp_req(uint addr) {
+  // Allocate a buffer to hold the outgoing frame.
+  char *buf = kalloc();
+  if (buf == 0) {
+    panic("failed to allocate buffer\n");
   }
+  uint offset = 0;
 
-  // Request is sent from out fixed IP.
-  for (int i = 0; i < 2; i++) {
-    req.spa[i] = fixed_ip[i];
-    req.tpa[i] = addr >> (i * 16) & 0xFFFF;
-  }
+  // Build the ethernet frame and copy it to the buffer.
+  struct eth frame = {.dst = {0xFFFF, 0xFFFF, 0xFFFF},
+                      .ether_type = ETH_TYPE_ARP};
+  memmove(frame.src, e1000.mac, 6);
+  offset += eth_to_buf(&frame, buf);
 
-  e1000_write((char *)&req, sizeof(struct arp_packet));
+  // Bulid the ARP request and copy it to the buffer.
+  struct arp_packet res = {.htype = 0x1,
+                           .ptype = 0x0800,
+                           .hlen = 0x6,
+                           .plen = 0x4,
+                           .oper = 0x1,
+                           .tha = {0xFFFF, 0xFFFF, 0xFFFF}};
+  memmove(res.sha, e1000.mac, 6);
+  memmove(res.spa, fixed_ip, 4);
+  // {0x0A 0x00} {0x00 0x01}
+  ushort addr_be[2] = {(addr >> 16) & 0xFFFF, addr & 0xFFFF};
+  memmove(res.tpa, &addr_be, 4);
+  offset += arp_packet_to_buf(&res, buf + offset);
+
+  // Write the request and release the buffer.
+  e1000_write(buf, offset);
+  kfree(buf);
 }
