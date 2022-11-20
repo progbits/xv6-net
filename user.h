@@ -25,7 +25,7 @@ int sleep(int);
 int uptime(void);
 int netopen(uint, uint, uint);
 int netclose(int);
-int netwrite(char *, uint);
+int netwrite(uint, char *, uint);
 
 // ulib.c
 int stat(const char *, struct stat *);

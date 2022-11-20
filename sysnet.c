@@ -3,12 +3,13 @@
 //
 // Single interface with a fixed IP address (10.0.0.2).
 //
-// TODO - Split this into sysnet.c and net.c
-//
-
+// TODO:
+//     - Split this into sysnet.c and net.c
+//     - ARP cache
 #include "types.h"
 #include "defs.h"
 #include "e1000.h"
+#include "spinlock.h"
 
 #define NCONN 100
 
@@ -17,6 +18,8 @@
 #define ETH_TYPE_ARP 0x0806
 
 extern struct e1000 e1000;
+
+static struct spinlock netlock;
 
 const ushort fixed_ip[2] = {0x0A00, 0x0002};
 
@@ -40,6 +43,29 @@ struct arp_packet {
   ushort tpa[2];
 };
 
+// Represents an IPV4 packet header.
+struct ipv4 {
+  uint ihl : 4;
+  uint version : 4;
+  uchar tos;
+  ushort total_len;
+  ushort id;
+  ushort frag_off;
+  uchar ttl;
+  uchar protocol;
+  ushort check;
+  uint src;
+  uint dst;
+};
+
+// Represents a UDP header.
+struct udp {
+  ushort src_port;
+  ushort dst_port;
+  ushort len;
+  ushort checksum;
+};
+
 // Represents a UDP/TCP connection.
 struct conn {
   int netfd;
@@ -49,6 +75,7 @@ struct conn {
   uint dst_addr;
   uint dst_port;
   char dst_mac[6];
+  char dst_mac_valid;
 };
 
 // ------
@@ -172,6 +199,34 @@ uint arp_packet_to_buf(struct arp_packet *packet, char *buf) {
   return sizeof(struct arp_packet);
 }
 
+// Write an IPV4 packet to a buffer.
+uint ipv4_to_buf(struct ipv4 *seg, char *buf) {
+  struct ipv4 wire = {.ihl = seg->ihl,
+                      .version = seg->version,
+                      .tos = seg->tos,
+                      .frag_off = seg->frag_off,
+                      .ttl = seg->ttl,
+                      .protocol = seg->protocol,
+                      .check = seg->check};
+  wire.total_len = __ushort_to_be(seg->total_len);
+  wire.id = __uint_to_be(seg->id);
+  wire.src = __uint_to_be(seg->src);
+  wire.dst = __uint_to_be(seg->dst);
+  memmove(buf, &wire, sizeof(struct ipv4));
+  return sizeof(struct ipv4);
+}
+
+// Write a UDP packet to a buffer.
+uint udp_to_buf(struct udp *packet, char *buf) {
+  struct udp wire;
+  wire.src_port = __ushort_to_be(packet->src_port);
+  wire.dst_port = __ushort_to_be(packet->dst_port);
+  wire.len = __ushort_to_be(packet->len);
+  wire.checksum = __ushort_to_be(packet->checksum);
+  memmove(buf, &wire, sizeof(struct udp));
+  return sizeof(struct udp);
+}
+
 // Return the next free network file descriptor.
 int next_free_netfd() {
   for (uint i = 0; i < NCONN; i++) {
@@ -206,23 +261,35 @@ int sys_netopen(void) {
     return -1;
   }
 
+  // TODO - Move this to a sysnetinit method.
+  initlock(&netlock, "net");
+
   // Find the first free connection slot.
   int netfd = next_free_netfd();
   if (netfd == -1) {
     return -1;
   }
   conns[netfd].netfd = netfd;
-  conns[netfd].src_port = netfd; // Map source port 1-1 with fd.
+  conns[netfd].src_port =
+      netfd; // Map source port 1-1 with network file descriptor.
   memmove(&conns[netfd].dst_addr, &addr, 4);
   conns[netfd].dst_port = port;
+  conns[netfd].dst_mac_valid = 0;
 
-  // Resolve the destination MAC address. We do this once per connection, on
-  // open.
-  // TODO - Global ARP cache.
+  // Resolve the destination MAC address. We do this once per
+  // connection, assuming the response will be valid for the duration
+  // of the connections lifetime.
   arp_req(addr);
 
+  // Block waiting for ARP response.
+  acquire(&netlock);
+  while (!conns[netfd].dst_mac_valid) {
+    sleep(&conns[netfd], &netlock);
+  }
+  release(&netlock);
+
   // Return the netfd used to identify this connection.
-  return 0;
+  return netfd;
 }
 
 int sys_netclose(int netfd) {
@@ -230,7 +297,57 @@ int sys_netclose(int netfd) {
   return -1;
 }
 
-int sys_netwrite(char *buf, uint size) { return -1; }
+// Assume UDP for now and that buf fits in a single frame.
+// sys_netwrite(uint netfd, char *buf, uint size)
+int sys_netwrite() {
+  int netfd;
+  char *data;
+  int size;
+  if (argint(0, &netfd) < 0 || argptr(1, (void *)&data, sizeof(char)) < 0 ||
+      argint(2, &size) < 0) {
+    return -1;
+  }
+
+  // TODO - Check net file descriptor is valid.
+  struct conn conn = conns[netfd];
+
+  // Allocate a buffer to hold the outgoing frame.
+  char *buf = kalloc();
+  if (buf == 0) {
+    panic("failed to allocate buffer\n");
+  }
+  uint offset = 0;
+
+  // Build the ethernet frame and copy it to the buffer.
+  struct eth frame = {.ether_type = ETH_TYPE_IPV4};
+  memmove(frame.dst, conns[netfd].dst_mac, 6);
+  memmove(frame.src, e1000.mac, 6);
+  offset += eth_to_buf(&frame, buf + offset);
+
+  // Build the IP header and copy it to the buffer.
+  struct ipv4 ipv4 = {.version = 4,
+                      .ihl = 5,
+                      .total_len = size + 20,
+                      .protocol = 0x11,
+                      .src = conn.src_addr,
+                      .dst = conn.dst_addr};
+  offset += ipv4_to_buf(&ipv4, buf + offset);
+
+  // Bulid the UPD packet and copy it to the buffer.
+  struct udp packet = {
+      .src_port = conn.src_port, .dst_port = conn.dst_port, .len = size};
+  offset += udp_to_buf(&packet, buf + offset);
+
+  // Copy the data to the buffer.
+  memmove((buf + offset), data, size);
+  offset += size;
+
+  // Write the request and release the buffer.
+  e1000_write(buf, offset);
+  kfree(buf);
+
+  return 1;
+}
 
 // Main entrypoint for handling packet rx.
 int handle_packet(char *buf, uint size, int end_of_packet) {
@@ -274,12 +391,15 @@ void handle_arp(struct arp_packet *req) {
 
   // Handle ARP response.
   if (req->oper == 0x2) {
-    // Find the connection related to this response.
+    // Find the connection related to this response, update its connection
+    // details and wakeup the process waiting on the response.
     uint i = 0;
     for (; i < NCONN; i++) {
       if (req->spa[0] == ((conns[i].dst_addr >> 16) & 0xFFFF)) {
         if (req->spa[1] == (conns[i].dst_addr & 0xFFFF)) {
           memmove(conns[i].dst_mac, req->sha, 6);
+          conns[i].dst_mac_valid = 1;
+          wakeup(&conns[i]);
           break;
         }
       }
@@ -340,7 +460,6 @@ void arp_req(uint addr) {
                            .tha = {0xFFFF, 0xFFFF, 0xFFFF}};
   memmove(res.sha, e1000.mac, 6);
   memmove(res.spa, fixed_ip, 4);
-  // {0x0A 0x00} {0x00 0x01}
   ushort addr_be[2] = {(addr >> 16) & 0xFFFF, addr & 0xFFFF};
   memmove(res.tpa, &addr_be, 4);
   offset += arp_packet_to_buf(&res, buf + offset);
