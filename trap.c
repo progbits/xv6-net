@@ -8,6 +8,8 @@
 #include "traps.h"
 #include "spinlock.h"
 
+void e1000_intr();
+
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
 extern uint vectors[]; // in vectors.S: array of 256 entry pointers

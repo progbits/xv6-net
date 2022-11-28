@@ -13,15 +13,20 @@
 
 #define NCONN 100
 
+#define PORT_OFFSET 3000
+
 #define ETH_TYPE_IPV4 0x0800
 #define ETH_TYPE_IPV6 0x86DD
 #define ETH_TYPE_ARP 0x0806
 
+// The fixed address of our single adaptor.
+const ushort fixed_ip[2] = {0x0A00, 0x0002};
+const uint fixedip = 0x0A000002;
+
 extern struct e1000 e1000;
 
+// Spinlock protecting all shared network resources.
 static struct spinlock netlock;
-
-const ushort fixed_ip[2] = {0x0A00, 0x0002};
 
 // Represents an ethernet frame header.
 struct eth {
@@ -67,15 +72,18 @@ struct udp {
 };
 
 // Represents a UDP/TCP connection.
+// Note: The source address is implicit in the fixed address of the default
+// adaptor.
 struct conn {
   int netfd;
   uint type;
-  uint src_addr;
   uint src_port;
   uint dst_addr;
   uint dst_port;
   char dst_mac[6];
   char dst_mac_valid;
+  char *buf;
+  uint size; // The number of bytes waiting to be read from the connection.
 };
 
 // ------
@@ -122,6 +130,7 @@ void dump_arp_packet(struct arp_packet *packet) {
 
 void handle_arp(struct arp_packet *);
 void arp_req(uint);
+void handle_udp(struct udp *, char *);
 
 // Active connections.
 struct conn conns[NCONN];
@@ -143,7 +152,7 @@ uint __uint_to_le(uint value) {
 
 uint __uint_to_be(uint value) {
   uint a = (uint)__ushort_to_be(value & 0xFFFF);
-  uint b = (uint)__ushort_to_be(value >> 16);
+  uint b = (uint)__ushort_to_be((value >> 16) & 0xFFFF);
   return (a << 16) | b;
 }
 
@@ -157,7 +166,9 @@ uint eth_from_buf(struct eth *hdr, char *buffer) {
 uint eth_to_buf(struct eth *hdr, char *buf) {
   struct eth wire;
   memmove(wire.src, hdr->src, 6);
-  memmove(wire.dst, hdr->dst, 6);
+  for (uint i = 0; i < 3; i++) {
+    wire.dst[i] = __ushort_to_be(hdr->dst[i]);
+  }
   wire.ether_type = __ushort_to_be(hdr->ether_type);
   memmove(buf, &wire, sizeof(struct eth));
   return sizeof(struct eth);
@@ -199,6 +210,16 @@ uint arp_packet_to_buf(struct arp_packet *packet, char *buf) {
   return sizeof(struct arp_packet);
 }
 
+// Read an IPV4 header from a buffer.
+uint ipv4_from_buf(struct ipv4 *header, char *buf) {
+  memmove(header, buf, sizeof(struct ipv4));
+  header->total_len = __ushort_to_le(header->total_len);
+  header->id = __ushort_to_le(header->id);
+  header->src = __uint_to_le(header->src);
+  header->dst = __uint_to_le(header->dst);
+  return sizeof(struct ipv4);
+}
+
 // Write an IPV4 packet to a buffer.
 uint ipv4_to_buf(struct ipv4 *seg, char *buf) {
   struct ipv4 wire = {.ihl = seg->ihl,
@@ -214,6 +235,15 @@ uint ipv4_to_buf(struct ipv4 *seg, char *buf) {
   wire.dst = __uint_to_be(seg->dst);
   memmove(buf, &wire, sizeof(struct ipv4));
   return sizeof(struct ipv4);
+}
+
+// Read a UDP packet from a buffer.
+uint udp_from_buf(struct udp *packet, char *buf) {
+  memmove(packet, buf, sizeof(struct udp));
+  packet->src_port = __ushort_to_le(packet->src_port);
+  packet->dst_port = __ushort_to_le(packet->dst_port);
+  packet->len = __ushort_to_le(packet->len);
+  return sizeof(struct udp);
 }
 
 // Write a UDP packet to a buffer.
@@ -248,16 +278,35 @@ int free_netfd(int netfd) {
   return -1;
 }
 
-// Open a new network connection.
+// Open a new client network connection.
 //
-// TODO - We don't have a seperate open(), connect()/accept() flow, so specify
-// direction at creation time?. Specify port separately, for outbound
-// connections interpret as dst_port, for inbound connections, src_port.
+// Opening a network connection establishes an association with a
+// local (address, port) tuple and the calling process. For connection
+// oriented sockets, this method will also attempt to establish a
+// connection. Equivilent a combination of the Berkley socket
+// interface socket(), bind() and connect() methods.
+//
+// As we only support a single network interface with a hardcoded
+// address, so we expose no concept of binding to a local address or
+// adaptor. All network connections are bound explicity to the default
+// adaptor and fixed network address.
+//
+// addr - The address of the remote host associated with the
+// connection. For connectionless protocols (UDP), this method
+// establishes the destination for subsequent calls to netwrite. For
+// connection-oriented protocols (TCP), this method attempts to
+// establish a new connection.
+//
+// port - The port of the remote host associated with the
+// connection.
+//
+// type - The type of connection, either 0 (UDP) or 1 (TCP).
 int sys_netopen(void) {
   int addr;
   int port;
   int type;
-  if (argint(0, &addr) < 0 || argint(1, &port) < 0 || argint(0, &type) < 0) {
+  if ((argint(0, &addr) < 0) || (argint(1, &port) < 0) ||
+      (argint(0, &type) < 0)) {
     return -1;
   }
 
@@ -271,10 +320,15 @@ int sys_netopen(void) {
   }
   conns[netfd].netfd = netfd;
   conns[netfd].src_port =
-      netfd; // Map source port 1-1 with network file descriptor.
+      netfd + PORT_OFFSET; // Map source port as file descriptor + offset.
   memmove(&conns[netfd].dst_addr, &addr, 4);
   conns[netfd].dst_port = port;
   conns[netfd].dst_mac_valid = 0;
+  conns[netfd].buf = kalloc();
+  if (conns[netfd].buf == 0) {
+    panic("failed to allocate buffer\n");
+  }
+  conns[netfd].size = 0;
 
   // Resolve the destination MAC address. We do this once per
   // connection, assuming the response will be valid for the duration
@@ -282,6 +336,7 @@ int sys_netopen(void) {
   arp_req(addr);
 
   // Block waiting for ARP response.
+  // TODO: Timeouts
   acquire(&netlock);
   while (!conns[netfd].dst_mac_valid) {
     sleep(&conns[netfd], &netlock);
@@ -297,8 +352,7 @@ int sys_netclose(int netfd) {
   return -1;
 }
 
-// Assume UDP for now and that buf fits in a single frame.
-// sys_netwrite(uint netfd, char *buf, uint size)
+// Write a new UDP segment to a netfd.
 int sys_netwrite() {
   int netfd;
   char *data;
@@ -325,17 +379,20 @@ int sys_netwrite() {
   offset += eth_to_buf(&frame, buf + offset);
 
   // Build the IP header and copy it to the buffer.
+  const uint total_len = sizeof(struct ipv4) + sizeof(struct udp) + size;
   struct ipv4 ipv4 = {.version = 4,
                       .ihl = 5,
-                      .total_len = size + 20,
+                      .total_len = total_len,
                       .protocol = 0x11,
-                      .src = conn.src_addr,
+                      .ttl = 64,
+                      .src = fixedip,
                       .dst = conn.dst_addr};
   offset += ipv4_to_buf(&ipv4, buf + offset);
 
-  // Bulid the UPD packet and copy it to the buffer.
-  struct udp packet = {
-      .src_port = conn.src_port, .dst_port = conn.dst_port, .len = size};
+  // Build the UPD packet and copy it to the buffer.
+  struct udp packet = {.src_port = conn.src_port,
+                       .dst_port = conn.dst_port,
+                       .len = sizeof(struct udp) + size};
   offset += udp_to_buf(&packet, buf + offset);
 
   // Copy the data to the buffer.
@@ -343,26 +400,65 @@ int sys_netwrite() {
   offset += size;
 
   // Write the request and release the buffer.
-  e1000_write(buf, offset);
+  e1000_write(buf, offset, 1);
   kfree(buf);
 
-  return 1;
+  return 0;
+}
+
+int sys_netread() {
+  int netfd;
+  char *data;
+  int size;
+  if ((argint(0, &netfd) < 0) || (argptr(1, (void *)&data, sizeof(char)) < 0) ||
+      (argint(2, &size) < 0)) {
+    return -1;
+  }
+
+  // Block waiting for data.
+  acquire(&netlock);
+  while (!conns[netfd].size) {
+    sleep(&conns[netfd], &netlock);
+  }
+  release(&netlock);
+
+  // Copy data into userspace buffer.
+  uint to_copy = conns[netfd].size < size ? conns[netfd].size : size;
+  memmove(data, conns[netfd].buf, to_copy);
+
+  conns[netfd].size -= size;
+
+  // Return number of bytes read.
+  return to_copy;
 }
 
 // Main entrypoint for handling packet rx.
 int handle_packet(char *buf, uint size, int end_of_packet) {
-  // Read the ethernet header.
-  uint offset = 0;
+  // Read the ethernet header. Assume that MAC filtering is happening in
+  // hardware and we are only receiving packets destined for us.
+  uint offset = 0; // The offset into the packet buffer.
   struct eth hdr;
   offset += eth_from_buf(&hdr, buf);
 
   switch (hdr.ether_type) {
   case ETH_TYPE_IPV4: {
-    // cprintf("ETH_TYPE_IPV4\n");
+    struct ipv4 header;
+    offset += ipv4_from_buf(&header, buf + offset);
+
+    // Drop any packets that aren't for us.
+    if (header.dst != fixedip) {
+      return 0;
+    }
+
+    // Handle the packet.
+    if (header.protocol == 0x11) {
+      struct udp udp;
+      offset += udp_from_buf(&udp, buf + offset);
+      handle_udp(&udp, buf + offset);
+    }
     break;
   }
   case ETH_TYPE_IPV6: {
-    // cprintf("ETH_TYPE_IPV6\n");
     break;
   }
   case ETH_TYPE_ARP: {
@@ -373,13 +469,11 @@ int handle_packet(char *buf, uint size, int end_of_packet) {
     break;
   }
   default: {
-    // cprintf("ETH_TYPE_UNKNOWN\n");
     break;
   }
   }
-  // dump_eth_hdr(&hdr);
 
-  return 1;
+  return 0;
 }
 
 // Handle an incoming ARP packet.
@@ -432,7 +526,7 @@ void handle_arp(struct arp_packet *req) {
   offset += arp_packet_to_buf(&res, buf + offset);
 
   // Write the response and release the buffer.
-  e1000_write(buf, offset);
+  e1000_write(buf, offset, 0);
   kfree(buf);
 }
 
@@ -465,6 +559,21 @@ void arp_req(uint addr) {
   offset += arp_packet_to_buf(&res, buf + offset);
 
   // Write the request and release the buffer.
-  e1000_write(buf, offset);
+  e1000_write(buf, offset, 0);
   kfree(buf);
+}
+
+// Handle an incoming UDP packet.
+void handle_udp(struct udp *packet, char *buf) {
+  // Find the netfd related to this response, copy packet data into its buffer
+  // and wakeup the process waiting on the response.
+  for (uint i = 0; i < NCONN; i++) {
+    if ((conns[i].src_port) == packet->dst_port) {
+      uint data_len = packet->len - sizeof(struct udp);
+      memmove(conns[i].buf, buf, data_len);
+      conns[i].size = data_len;
+      wakeup(&conns[i]);
+      break;
+    }
+  }
 }

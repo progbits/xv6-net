@@ -73,6 +73,14 @@ struct tx_desc {
   uint opts[2];
 };
 
+// Represents the TCP/IP context descriptor.
+//
+// Section 3.3.6 TCP/IP Context Descriptor Layout.
+struct ctx_desc {
+  uint opts_low[2];
+  uint opts_high[2];
+};
+
 // Read a main function register.
 uint read_reg(uint reg) { return *(uint *)(e1000.mmio_base + reg); }
 
@@ -264,8 +272,8 @@ void init_tx() {
 
   // Setup the transmission control TCTL register.
   uint tctl_reg = 0x0;
-  tctl_reg |= (1 << 1);
-  tctl_reg |= (1 << 3);
+  tctl_reg |= (1 << 1);        // Transmit enable.
+  tctl_reg |= (1 << 3);        // Pad short packets
   tctl_reg |= ((0xF) << 4);    // Collision threshold.
   tctl_reg |= ((0x200) << 12); // Collision distance.
   write_reg(TCTL, tctl_reg);
@@ -328,23 +336,51 @@ void e1000_read() {
 }
 
 // Transmit a packet.
-void e1000_write(char *buf, uint size) {
+void e1000_write(char *buf, uint size, int offload) {
   // TODO - Don't leak pages.
   char *tx_buf = kalloc();
   memset(tx_buf, 0, PGSIZE);
 
+  // If we are not setup to offload IP/TCP checksums, write the context
+  // descriptor. Assume UDP transmission only at the moment.
+  if (e1000.tx_ctx == 0) {
+    uint tucss = 14;
+    uint tucso = 40; // Ethernet + IPV4 + partial UPD headers.
+    uint tucse = 0;
+    uint ipcse = 14 + 20 - 1; // Offset ethernet + IPV4 headers.
+    uint ipcso = 14 + 10;
+    uint ipcss = 14; // Offset ethernet header.
+    uint tucmd = (1 << 5);
+
+    struct ctx_desc ctx_desc;
+    memset(&ctx_desc, 0, sizeof(struct ctx_desc));
+    ctx_desc.opts_low[0] = (ipcss) | (ipcso << 8) | (ipcse << 16);
+    ctx_desc.opts_low[1] = (tucss) | (tucso << 8) | (tucse << 16);
+    ctx_desc.opts_high[0] = (tucmd << 24);
+
+    const uint tail = read_reg(TDT);
+    memmove(e1000.tx + (tail * sizeof(struct ctx_desc)), &ctx_desc,
+            sizeof(struct ctx_desc));
+    write_reg(TDT, tail + 1);
+
+    e1000.tx_ctx = 1;
+  }
+
   // Write the payload into the transmit buffer.
   // TODO - Possible buffer overrun.
   memmove(tx_buf, buf, size);
-  uint offset = size;
 
   // Setup the transmit descriptor.
   uint dtyp = 1 << 0;
   uint dcmd = (1 << 0) | (1 << 3) | (1 << 5);
+  uint popts = 0;
+  if (offload) {
+    popts = (1 << 0);
+  }
   struct tx_desc data_desc = {.addr[0] = V2P(tx_buf),
                               .addr[1] = 0x0,
-                              .opts[0] = offset | (dtyp << 20) | (dcmd << 24),
-                              .opts[1] = 0x0};
+                              .opts[0] = size | (dtyp << 20) | (dcmd << 24),
+                              .opts[1] = popts << 8};
 
   // Read the tail register to get the offset where we are to write the next
   // descriptor and write the descriptor to send the packet.
