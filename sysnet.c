@@ -283,17 +283,17 @@ int free_netfd(int netfd) {
 // Opening a network connection establishes an association with a
 // local (address, port) tuple and the calling process. For connection
 // oriented sockets, this method will also attempt to establish a
-// connection. Equivilent a combination of the Berkley socket
+// connection. Equivalent a combination of the Berkley socket
 // interface socket(), bind() and connect() methods.
 //
 // As we only support a single network interface with a hardcoded
 // address, so we expose no concept of binding to a local address or
-// adaptor. All network connections are bound explicity to the default
+// adaptor. All network connections are bound explicitly to the default
 // adaptor and fixed network address.
 //
 // addr - The address of the remote host associated with the
 // connection. For connectionless protocols (UDP), this method
-// establishes the destination for subsequent calls to netwrite. For
+// establishes the destination for subsequent calls to `netwrite`. For
 // connection-oriented protocols (TCP), this method attempts to
 // establish a new connection.
 //
@@ -516,7 +516,7 @@ void handle_arp(struct arp_packet *req) {
   memmove(frame.dst, req->sha, 6);
   offset += eth_to_buf(&frame, buf);
 
-  // Bulid the ARP response and copy it to the buffer.
+  // Build the ARP response and copy it to the buffer.
   struct arp_packet res = {
       .htype = 0x1, .ptype = 0x0800, .hlen = 0x6, .plen = 0x4, .oper = 0x2};
   memmove(res.sha, e1000.mac, 6);
@@ -545,7 +545,7 @@ void arp_req(uint addr) {
   memmove(frame.src, e1000.mac, 6);
   offset += eth_to_buf(&frame, buf);
 
-  // Bulid the ARP request and copy it to the buffer.
+  // Build the ARP request and copy it to the buffer.
   struct arp_packet res = {.htype = 0x1,
                            .ptype = 0x0800,
                            .hlen = 0x6,
