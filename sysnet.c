@@ -278,6 +278,8 @@ int free_netfd(int netfd) {
   return -1;
 }
 
+void netinit() { initlock(&netlock, "net"); }
+
 // Open a new client network connection.
 //
 // Opening a network connection establishes an association with a
@@ -309,9 +311,6 @@ int sys_netopen(void) {
       (argint(0, &type) < 0)) {
     return -1;
   }
-
-  // TODO - Move this to a sysnetinit method.
-  initlock(&netlock, "net");
 
   // Find the first free connection slot.
   int netfd = next_free_netfd();
@@ -434,8 +433,10 @@ int sys_netread() {
 
 // Main entrypoint for handling packet rx.
 int handle_packet(char *buf, uint size, int end_of_packet) {
+  acquire(&netlock);
+
   // Read the ethernet header. Assume that MAC filtering is happening in
-  // hardware and we are only receiving packets destined for us.
+  // hardware. We are only receiving packets destined for us.
   uint offset = 0; // The offset into the packet buffer.
   struct eth hdr;
   offset += eth_from_buf(&hdr, buf);
@@ -447,7 +448,7 @@ int handle_packet(char *buf, uint size, int end_of_packet) {
 
     // Drop any packets that aren't for us.
     if (header.dst != fixedip) {
-      return 0;
+      goto end;
     }
 
     // Handle the packet.
@@ -473,6 +474,8 @@ int handle_packet(char *buf, uint size, int end_of_packet) {
   }
   }
 
+end:
+  release(&netlock);
   return 0;
 }
 
