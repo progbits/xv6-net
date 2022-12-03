@@ -426,7 +426,7 @@ int sys_netread() {
   uint to_copy = conns[netfd].size < size ? conns[netfd].size : size;
   memmove(data, conns[netfd].buf, to_copy);
 
-  conns[netfd].size -= size;
+  conns[netfd].size -= to_copy;
 
   // Return number of bytes read.
   return to_copy;
