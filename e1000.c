@@ -181,14 +181,14 @@ void e1000init() {
   ioapicenable(IRQ_PCI0, 0);
 }
 
-// Recieve initialization.
+// Receive initialization.
 //
 // Reference: Manual - Section 14.4
 //
-// - Program recieve address registers with MAC address.
+// - Program receive address registers with MAC address.
 // - Zero out the multicast table array.
-// - Allocate a buffer to hold recieve descriptors.
-// - Setup the recieve controler register.
+// - Allocate a buffer to hold receive descriptors.
+// - Setup the receive controller register.
 void init_rx() {
   // Write MAC address.
   uint mac_low = 0x0;
@@ -198,11 +198,11 @@ void init_rx() {
   write_reg(RAL, mac_low);
   write_reg(RAH, mac_high);
 
-  // Recieve descriptor buffer should be 16B aligned. Its page aligned,
+  // Receive descriptor buffer should be 16B aligned. Its page aligned,
   // so this is fine.
   e1000.rx = (struct rx_desc *)kalloc();
   if (e1000.rx == 0) {
-    panic("failed to allocate recieve descriptor buffer\n");
+    panic("failed to allocate receive descriptor buffer\n");
   }
   memset(e1000.rx, 0, PGSIZE);
 
@@ -233,13 +233,13 @@ void init_rx() {
   }
   write_reg(RDT, e1000.rx_count - 1); // One past last valid descriptor.
 
-  // Setup the recieve control register (RCTL).
+  // Setup the receive control register (RCTL).
   uint rctl_reg = 0x0;
-  rctl_reg |= (1 << 1);  // Reciever enable.
+  rctl_reg |= (1 << 1);  // Receiver enable.
   rctl_reg |= (1 << 2);  // Store bad packets.
-  rctl_reg |= (1 << 3);  // Recieve all unicast packets.
-  rctl_reg |= (1 << 4);  // Recieve all multicast packets.
-  rctl_reg |= (1 << 5);  // Recieve long packets.
+  rctl_reg |= (1 << 3);  // Receive all unicast packets.
+  rctl_reg |= (1 << 4);  // Receive all multicast packets.
+  rctl_reg |= (1 << 5);  // Receive long packets.
   rctl_reg |= (1 << 15); // Accept broadcast packets.
   rctl_reg |= (3 << 16); // Buffer size (4096 bytes).
   rctl_reg |= (1 << 25); // Buffer size extension.
@@ -284,7 +284,7 @@ void init_tx() {
 
 // Initialize interrupts.
 void init_intr() {
-  // Enable transmit descriptor write-back and recieve timer interrupts.
+  // Enable transmit descriptor write-back and receive timer interrupts.
   write_reg(IMS,
             (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 6) | (1 << 7));
 }
@@ -303,7 +303,7 @@ void e1000_intr() {
   }
 }
 
-// Read avaliable packets and hand off to the networking layer.
+// Read available packets and hand off to the networking layer.
 void e1000_read() {
   // const uint DD = 1 << 0;
   const uint EOP = 1 << 1;
