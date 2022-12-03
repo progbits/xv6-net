@@ -207,6 +207,7 @@ void init_rx() {
   memset(e1000.rx, 0, PGSIZE);
 
   e1000.rx_count = PGSIZE / sizeof(struct rx_desc);
+  e1000.rx_i = 0;
 
   // Setup the recieve descriptor buffer registers.
   write_reg(RDBAL, V2P(e1000.rx));
@@ -305,34 +306,25 @@ void e1000_intr() {
 
 // Read available packets and hand off to the networking layer.
 void e1000_read() {
-  // const uint DD = 1 << 0;
   const uint EOP = 1 << 1;
 
   // Read the available descriptors.
-  const uint tail = read_reg(RDT);
   const uint head = read_reg(RDH);
-  uint i = tail % (e1000.rx_count - 1);
-  uint n = head > tail ? head - tail : (e1000.rx_count - tail - 1) + head;
-  for (uint j = 0; j < n; j++) {
-    // Read packet details.
-    const uint idx = (i + j) % (e1000.rx_count - 1);
-    const struct rx_desc desc = e1000.rx[idx];
+  while (e1000.rx_i != head) {
+    const struct rx_desc desc = e1000.rx[e1000.rx_i];
     const uint packet_size = desc.fields[0] & 0xFF;
     const uint end_of_packet = ((desc.fields[1]) & EOP) >> 1;
-    const char *buffer = (char *)(P2V(desc.addr[0]));
-
-    // Dump some debug information.
-    cprintf("packet count: %d\n", e1000.packet_count);
-    cprintf("buffer: 0x%x\n", buffer);
-    cprintf("packet size: %d\n", desc.fields[0] & 0xFF);
-    cprintf("end of packet: %d\n", ((desc.fields[1]) & EOP) >> 1);
+    char *buffer = (char *)(P2V(desc.addr[0]));
 
     // Hand off the packet to the network layer.
     handle_packet(buffer, packet_size, end_of_packet);
-  }
 
-  // Bump the receive tail pointer.
-  write_reg(RDT, head == 0 ? e1000.rx_count - 1 : head - 1);
+    e1000.rx_i++;
+    if (e1000.rx_i == e1000.rx_count) {
+      e1000.rx_i = 0;
+    }
+  }
+  write_reg(RDT, e1000.rx_i - 1);
 }
 
 // Transmit a packet.
