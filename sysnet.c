@@ -260,25 +260,19 @@ uint udp_to_buf(struct udp *packet, char *buf) {
 // Return the next free network file descriptor.
 int next_free_netfd() {
   for (uint i = 0; i < NCONN; i++) {
-    if (conns[i].netfd == 0) {
+    if (conns[i].netfd == -1) {
       return i;
     }
   }
   return -1;
 }
 
-// Release a netfd.
-int free_netfd(int netfd) {
-  for (uint i = 0; i < NCONN; i++) {
-    if (conns[i].netfd == netfd) {
-      conns[i].netfd = 0;
-      return 1;
-    }
+void netinit() {
+  initlock(&netlock, "net");
+  for (int i = 0; i < NCONN; i++) {
+    conns[i].netfd = -1;
   }
-  return -1;
 }
-
-void netinit() { initlock(&netlock, "net"); }
 
 // Open a new client network connection.
 //
@@ -346,9 +340,20 @@ int sys_netopen(void) {
   return netfd;
 }
 
-int sys_netclose(int netfd) {
-  // Remove the connection from the connection list and clean up any resources.
-  return -1;
+// Release a netfd and free any associated resources.
+int sys_netclose() {
+  int netfd;
+  if (argint(0, &netfd) < 0) {
+    return -1;
+  }
+
+  if (conns[netfd].netfd == -1) {
+    // Already free.
+    return 0;
+  }
+  conns[netfd].netfd = -1;
+  kfree(conns[netfd].buf);
+  return 0;
 }
 
 // Write a new UDP segment to a netfd.
