@@ -351,8 +351,18 @@ int sys_netclose() {
     // Already free.
     return 0;
   }
-  conns[netfd].netfd = -1;
   kfree(conns[netfd].buf);
+
+  conns[netfd].netfd = -1;
+  conns[netfd].type = -1;
+  conns[netfd].src_port = -1;
+  conns[netfd].dst_addr = -1;
+  conns[netfd].dst_port = -1;
+  memset(conns[netfd].dst_mac, 0, 6);
+  conns[netfd].dst_mac_valid = 0;
+  conns[netfd].buf = 0;
+  conns[netfd].size = 0;
+
   return 0;
 }
 
@@ -367,6 +377,7 @@ int sys_netwrite() {
   }
 
   // TODO - Check net file descriptor is valid.
+  acquire(&netlock);
   struct conn conn = conns[netfd];
 
   // Allocate a buffer to hold the outgoing frame.
@@ -407,6 +418,7 @@ int sys_netwrite() {
   e1000_write(buf, offset, 1);
   kfree(buf);
 
+  release(&netlock);
   return 0;
 }
 
@@ -424,7 +436,6 @@ int sys_netread() {
   while (!conns[netfd].size) {
     sleep(&conns[netfd], &netlock);
   }
-  release(&netlock);
 
   // Copy data into userspace buffer.
   uint to_copy = conns[netfd].size < size ? conns[netfd].size : size;
@@ -433,11 +444,12 @@ int sys_netread() {
   conns[netfd].size -= to_copy;
 
   // Return number of bytes read.
+  release(&netlock);
   return to_copy;
 }
 
 // Main entrypoint for handling packet rx.
-int handle_packet(char *buf, uint size, int end_of_packet) {
+int handle_packet(char *buf, int size, int end_of_packet) {
   acquire(&netlock);
 
   // Read the ethernet header. Assume that MAC filtering is happening in
@@ -578,8 +590,8 @@ void handle_udp(struct udp *packet, char *buf) {
   for (uint i = 0; i < NCONN; i++) {
     if ((conns[i].src_port) == packet->dst_port) {
       uint data_len = packet->len - sizeof(struct udp);
-      memmove(conns[i].buf, buf, data_len);
-      conns[i].size = data_len;
+      memmove(conns[i].buf + conns[i].size, buf, data_len);
+      conns[i].size += data_len;
       wakeup(&conns[i]);
       break;
     }

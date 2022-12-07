@@ -52,7 +52,7 @@ void init_intr();
 
 // Defined in sysnet.c
 // TODO - This is a bit weird.
-void handle_packet(const char *, uint, int);
+void handle_packet(const char *, int, int);
 
 // Driver state.
 struct e1000 e1000;
@@ -256,13 +256,32 @@ void init_rx() {
 // - Setup the transmission control register.
 // - Setup the transmission inter-packet gap register.
 void init_tx() {
-  // Transmit buffer should be 16B aligned. Its page aligned,
+  // Transmit descriptor buffer should be 16B aligned. Its page aligned,
   // so this is fine
-  e1000.tx = kalloc();
+  e1000.tx = (struct tx_desc *)kalloc();
   if (e1000.tx == 0) {
-    panic("failed to allocate transmission buffer\n");
+    panic("failed to allocate tx desc buffer\n");
   }
   memset(e1000.tx, 0, PGSIZE);
+  e1000.tx_count = PGSIZE / sizeof(struct tx_desc);
+
+  // Allocate the transmission data buffer list and then for each transmission
+  // descriptor, allocate a data buffer and write the descriptor.
+  e1000.tx_buf = (char **)kalloc();
+  for (uint i = 0; i < e1000.tx_count; i++) {
+    e1000.tx_buf[i] = kalloc();
+    if (e1000.tx_buf[i] == 0) {
+      panic("failed to allocate buffer\n");
+    }
+    memset(e1000.tx_buf[i], 0, PGSIZE);
+
+    // Write the descriptor for the buffer.
+    struct tx_desc desc = {
+        .addr = {V2P(e1000.tx_buf[i])},
+    };
+    memmove(&e1000.tx[i], &desc, sizeof(struct tx_desc));
+  }
+  e1000.tx_i = 1;
 
   // Setup the transmit descriptor buffer registers.
   write_reg(TDBAL, V2P(e1000.tx));
@@ -293,19 +312,34 @@ void init_intr() {
 // Main interrupt handler.
 void e1000_intr() {
   const uint TXDW = 1 << 0;
+  const uint TXQE = 1 << 1;
+  const uint LSC = 1 << 2;
+  const uint RXSEQ = 1 << 3;
+  const uint RXDMTO = 1 << 4;
+  const uint RXO = 1 << 6;
   const uint RXT0 = 1 << 7;
 
   // Read the interrupt register and dispatch to the correct handler.
   const uint mask = read_reg(ICR);
   if (mask & TXDW) {
-    // TODO - Claim back used descriptors.
+    cprintf("e1000intr: tx descriptor write-back\n");
+  } else if (mask & TXQE) {
+    cprintf("e1000intr: tx queue empty\n");
+  } else if (mask & LSC) {
+    cprintf("e1000intr: link status change seq error\n");
+  } else if (mask & RXSEQ) {
+    cprintf("e1000intr: rx seq error\n");
+  } else if (mask & RXDMTO) {
+    cprintf("e1000intr: rx min threshold\n");
+  } else if (mask & RXO) {
+    panic("e1000intr: rx-fifo overrun\n");
   } else if (mask & RXT0) {
     e1000_read();
   }
 }
 
 // Read available packets and hand off to the networking layer.
-void e1000_read() {
+int e1000_read() {
   const uint EOP = 1 << 1;
 
   // Read the available descriptors.
@@ -317,7 +351,7 @@ void e1000_read() {
     char *buffer = (char *)(P2V(desc.addr[0]));
 
     // Hand off the packet to the network layer.
-    handle_packet(buffer, packet_size, end_of_packet);
+    handle_packet(buffer, (int)packet_size, (int)end_of_packet);
 
     e1000.rx_i++;
     if (e1000.rx_i == e1000.rx_count) {
@@ -325,14 +359,11 @@ void e1000_read() {
     }
   }
   write_reg(RDT, e1000.rx_i - 1);
+  return 0;
 }
 
 // Transmit a packet.
-void e1000_write(char *buf, uint size, int offload) {
-  // TODO - Don't leak pages.
-  char *tx_buf = kalloc();
-  memset(tx_buf, 0, PGSIZE);
-
+int e1000_write(const char *const buf, int size, int offload) {
   // If we are not setup to offload IP/TCP checksums, write the context
   // descriptor. Assume UDP transmission only at the moment.
   if (e1000.tx_ctx == 0) {
@@ -344,23 +375,24 @@ void e1000_write(char *buf, uint size, int offload) {
     uint ipcss = 14; // Offset ethernet header.
     uint tucmd = (1 << 5);
 
-    struct ctx_desc ctx_desc;
-    memset(&ctx_desc, 0, sizeof(struct ctx_desc));
-    ctx_desc.opts_low[0] = (ipcss) | (ipcso << 8) | (ipcse << 16);
-    ctx_desc.opts_low[1] = (tucss) | (tucso << 8) | (tucse << 16);
-    ctx_desc.opts_high[0] = (tucmd << 24);
+    struct ctx_desc *ctx_desc = (struct ctx_desc *)&e1000.tx[e1000.tx_i];
+    ctx_desc->opts_low[0] = (ipcss) | (ipcso << 8) | (ipcse << 16);
+    ctx_desc->opts_low[1] = (tucss) | (tucso << 8) | (tucse << 16);
+    ctx_desc->opts_high[0] = (tucmd << 24);
+    ctx_desc->opts_high[1] = 0;
 
-    const uint tail = read_reg(TDT);
-    memmove(e1000.tx + (tail * sizeof(struct ctx_desc)), &ctx_desc,
-            sizeof(struct ctx_desc));
-    write_reg(TDT, tail + 1);
-
+    ++e1000.tx_i;
+    if (e1000.tx_i == e1000.tx_count) {
+      e1000.tx_i = 0;
+    }
+    write_reg(TDT, e1000.tx_i);
     e1000.tx_ctx = 1;
   }
 
   // Write the payload into the transmit buffer.
-  // TODO - Possible buffer overrun.
-  memmove(tx_buf, buf, size);
+  int safe_size = size > PGSIZE ? PGSIZE : size;
+  char *tx_buf = e1000.tx_buf[e1000.tx_i];
+  memmove(tx_buf, buf, safe_size);
 
   // Setup the transmit descriptor.
   uint dtyp = 1 << 0;
@@ -369,15 +401,15 @@ void e1000_write(char *buf, uint size, int offload) {
   if (offload) {
     popts = (1 << 0);
   }
-  struct tx_desc data_desc = {.addr[0] = V2P(tx_buf),
-                              .addr[1] = 0x0,
-                              .opts[0] = size | (dtyp << 20) | (dcmd << 24),
-                              .opts[1] = popts << 8};
+  struct tx_desc *desc = &e1000.tx[e1000.tx_i];
+  desc->opts[0] = size | (dtyp << 20) | (dcmd << 24);
+  desc->opts[1] = popts << 8;
 
-  // Read the tail register to get the offset where we are to write the next
-  // descriptor and write the descriptor to send the packet.
-  const uint tail = read_reg(TDT);
-  memmove(e1000.tx + (tail * sizeof(struct tx_desc)), &data_desc,
-          sizeof(struct tx_desc));
-  write_reg(TDT, tail + 1);
+  ++e1000.tx_i;
+  if (e1000.tx_i == e1000.tx_count) {
+    e1000.tx_i = 0;
+  }
+  write_reg(TDT, e1000.tx_i);
+
+  return 0;
 }
