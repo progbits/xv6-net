@@ -170,7 +170,7 @@ mkfs: mkfs.c fs.h
 
 UPROGS=\
 	_cat\
-	_curl\
+	_nc\
 	_echo\
 	_forktest\
 	_grep\
