@@ -53,15 +53,22 @@ struct ipv4 {
   uint ihl : 4;
   uint version : 4;
   uchar tos;
-  ushort total_len;
+  ushort length;
   ushort id;
-  ushort frag_off;
+  ushort offset;
   uchar ttl;
   uchar protocol;
-  ushort check;
+  ushort checksum;
   uint src;
   uint dst;
 };
+
+// Check is this packet is a fragment. A packet if a fragment if either the
+// 'More Fragments (MF)' field set or if `frag_off` > 0.
+int is_fragment(struct ipv4 *ipv4) {
+  uint offset = ipv4->offset & 0x1FFF;
+  return (ipv4->offset & (1 << 13)) || offset > 0;
+}
 
 // Represents a UDP header.
 struct udp {
@@ -83,7 +90,7 @@ struct conn {
   char dst_mac[6];
   char dst_mac_valid;
   char *buf;
-  uint size; // The number of bytes waiting to be read from the connection.
+  int size; // The number of bytes waiting to be read from the connection.
 };
 
 void handle_arp(struct arp_packet *);
@@ -171,8 +178,9 @@ uint arp_packet_to_buf(struct arp_packet *packet, char *buf) {
 // Read an IPV4 header from a buffer.
 uint ipv4_from_buf(struct ipv4 *header, char *buf) {
   memmove(header, buf, sizeof(struct ipv4));
-  header->total_len = __ushort_to_le(header->total_len);
+  header->length = __ushort_to_le(header->length);
   header->id = __ushort_to_le(header->id);
+  header->offset = __ushort_to_le(header->offset);
   header->src = __uint_to_le(header->src);
   header->dst = __uint_to_le(header->dst);
   return sizeof(struct ipv4);
@@ -183,11 +191,11 @@ uint ipv4_to_buf(struct ipv4 *seg, char *buf) {
   struct ipv4 wire = {.ihl = seg->ihl,
                       .version = seg->version,
                       .tos = seg->tos,
-                      .frag_off = seg->frag_off,
+                      .offset = seg->offset,
                       .ttl = seg->ttl,
                       .protocol = seg->protocol,
-                      .check = seg->check};
-  wire.total_len = __ushort_to_be(seg->total_len);
+                      .checksum = seg->checksum};
+  wire.length = __ushort_to_be(seg->length);
   wire.id = __uint_to_be(seg->id);
   wire.src = __uint_to_be(seg->src);
   wire.dst = __uint_to_be(seg->dst);
@@ -352,10 +360,10 @@ int sys_netwrite() {
   offset += eth_to_buf(&frame, buf + offset);
 
   // Build the IP header and copy it to the buffer.
-  const uint total_len = sizeof(struct ipv4) + sizeof(struct udp) + size;
+  const uint length = sizeof(struct ipv4) + sizeof(struct udp) + size;
   struct ipv4 ipv4 = {.version = 4,
                       .ihl = 5,
-                      .total_len = total_len,
+                      .length = length,
                       .protocol = 0x11,
                       .ttl = 64,
                       .src = fixedip,
@@ -396,14 +404,14 @@ int sys_netread() {
   }
 
   // Copy data into userspace buffer.
-  uint to_copy = conns[netfd].size < size ? conns[netfd].size : size;
-  memmove(data, conns[netfd].buf, to_copy);
+  int copied = conns[netfd].size < size ? conns[netfd].size : size;
+  memmove(data, conns[netfd].buf, copied);
 
-  conns[netfd].size -= to_copy;
+  conns[netfd].size -= copied;
 
   // Return number of bytes read.
   release(&netlock);
-  return to_copy;
+  return copied;
 }
 
 // Main entrypoint for handling packet rx.
@@ -423,6 +431,11 @@ int handle_packet(char *buf, int size, int end_of_packet) {
 
     // Drop any packets that aren't for us.
     if (header.dst != fixedip) {
+      goto end;
+    }
+
+    // Drop any packets that are fragments.
+    if (is_fragment(&header)) {
       goto end;
     }
 
