@@ -86,48 +86,6 @@ struct conn {
   uint size; // The number of bytes waiting to be read from the connection.
 };
 
-// ------
-// DEBUG.
-// ------
-
-void dump_eth_hdr(struct eth *hdr) {
-  cprintf("dest mac: 0x");
-  for (uint i = 0; i < 3; i++) {
-    cprintf("%x", hdr->dst[i] & 0xFFFF);
-  }
-  cprintf("\n");
-
-  cprintf("source mac: 0x");
-  for (uint i = 0; i < 3; i++) {
-    cprintf("%x", hdr->src[i] & 0xFFFF);
-  }
-  cprintf("\n");
-
-  cprintf("ether type: 0x%x\n", hdr->ether_type);
-}
-
-void dump_arp_packet(struct arp_packet *packet) {
-  cprintf("hardware type: 0x%x\n", packet->htype);
-  cprintf("protocol type: 0x%x\n", packet->ptype);
-  cprintf("operation: 0x%x\n", packet->oper);
-
-  cprintf("sender hardware address: 0x");
-  for (uint i = 0; i < 3; i++) {
-    cprintf("%x", packet->sha[i] & 0xFFFF);
-  }
-  cprintf("\n");
-
-  cprintf("target protocol address: 0x");
-  for (uint i = 0; i < 2; i++) {
-    cprintf("%x", packet->tpa[i] & 0xFFFF);
-  }
-  cprintf("\n");
-}
-
-// ----------
-// End DEBUG.
-// ----------
-
 void handle_arp(struct arp_packet *);
 void arp_req(uint);
 void handle_udp(struct udp *, char *);
@@ -482,7 +440,6 @@ int handle_packet(char *buf, int size, int end_of_packet) {
   case ETH_TYPE_ARP: {
     struct arp_packet packet;
     offset += arp_packet_from_buf(&packet, buf + offset);
-    // dump_arp_packet(&packet);
     handle_arp(&packet);
     break;
   }

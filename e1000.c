@@ -1,5 +1,5 @@
 //
-// PCI system calls
+// Simple driver for the E1000 family of network cards.
 //
 
 #include "types.h"
