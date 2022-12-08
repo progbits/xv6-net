@@ -32,7 +32,7 @@ uint parse_addr(char *addr) {
 // flag is somewhat implicit.
 int main(int argc, char *argv[]) {
   if (argc < 3) {
-    printf(2, "usage: nc [destination] [port]");
+    printf(2, "usage: nc [destination] [port]\n");
     exit();
   }
 
@@ -45,14 +45,28 @@ int main(int argc, char *argv[]) {
     exit();
   }
 
-  // Write a bunch of data.
-  char *outputs[] = {"hello\n", "test\n", "foo\n", "bar\n", "!\n"};
-  for (int i = 0; i < 2048; i++) {
-    for (int j = 0; j < 5; j++) {
-      netwrite(netfd, outputs[j], strlen(outputs[j]));
+  // We don't have any `poll` or `select` like functionality, so fork a new
+  // process to read received data.
+  int pid = fork();
+  if (pid == 0) {
+    // Forked process
+    const uint buf_size = 2048; // Big enough to hold any packet.
+    char *buf = malloc(buf_size);
+    for (;;) {
+      int bytes_read = netread(netfd, buf, buf_size);
+      buf[bytes_read] = '\0';
+      printf(1, "%s", buf);
+    }
+  } else {
+    // Original process.
+    const uint buf_size = 1024;
+    char *buf = malloc(buf_size);
+    for (;;) {
+      int bytes_read = read(1, buf, buf_size);
+      netwrite(netfd, buf, bytes_read);
     }
   }
-  netclose(netfd);
 
+  netclose(netfd);
   exit();
 }
