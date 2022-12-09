@@ -146,7 +146,15 @@ tags: $(OBJS) entryother.S _init
 vectors.S: vectors.pl
 	./vectors.pl > vectors.S
 
-ULIB = ulib.o usys.o printf.o umalloc.o
+# Rust library.
+libxv6.a: $(shell find rust -type f -not -path "*/target/*")
+	cd rust && \
+	cargo build --release && \
+	cd ../ && \
+	cp rust/target/i686-unknown-linux-gnu/release/libxv6.a libxv6.a
+
+# User space libraries.
+ULIB = ulib.o usys.o printf.o umalloc.o libxv6.a
 
 _%: %.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
@@ -170,7 +178,6 @@ mkfs: mkfs.c fs.h
 
 UPROGS=\
 	_cat\
-	_nc\
 	_echo\
 	_forktest\
 	_grep\
@@ -179,6 +186,7 @@ UPROGS=\
 	_ln\
 	_ls\
 	_mkdir\
+	_nc\
 	_rm\
 	_sh\
 	_stressfs\
