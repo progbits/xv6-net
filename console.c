@@ -48,6 +48,25 @@ static void printint(int xx, int base, int sign) {
 }
 // PAGEBREAK: 50
 
+// Print to the console.
+void cprint(char *fmt) {
+  int i, c, locking;
+
+  locking = cons.locking;
+  if (locking)
+    acquire(&cons.lock);
+
+  if (fmt == 0)
+    panic("null fmt");
+
+  for (i = 0; (c = fmt[i] & 0xff) != 0; i++) {
+    consputc(c);
+  }
+
+  if (locking)
+    release(&cons.lock);
+}
+
 // Print to the console. only understands %d, %x, %p, %s.
 void cprintf(char *fmt, ...) {
   int i, c, locking;

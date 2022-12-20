@@ -123,8 +123,8 @@ initcode: initcode.S
 	$(OBJCOPY) -S -O binary initcode.out initcode
 	$(OBJDUMP) -S initcode.o > initcode.asm
 
-kernel: $(OBJS) entry.o entryother initcode kernel.ld
-	$(LD) $(LDFLAGS) -T kernel.ld -o kernel entry.o $(OBJS) -b binary initcode entryother
+kernel: $(OBJS) libxv6.a entry.o entryother initcode kernel.ld
+	$(LD) $(LDFLAGS) -T kernel.ld -o kernel entry.o $(OBJS) libxv6.a -b binary initcode entryother
 	$(OBJDUMP) -S kernel > kernel.asm
 	$(OBJDUMP) -t kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > kernel.sym
 
@@ -149,12 +149,12 @@ vectors.S: vectors.pl
 # Rust library.
 libxv6.a: $(shell find rust -type f -not -path "*/target/*")
 	cd rust && \
-	cargo build --release && \
+	cargo rustc --release && \
 	cd ../ && \
-	cp rust/target/i686-unknown-linux-gnu/release/libxv6.a libxv6.a
+	cp rust/target/i586-unknown-linux-gnu/release/libxv6.a libxv6.a
 
 # User space libraries.
-ULIB = ulib.o usys.o printf.o umalloc.o libxv6.a
+ULIB = ulib.o usys.o printf.o umalloc.o
 
 _%: %.o $(ULIB)
 	$(LD) $(LDFLAGS) -N -e main -Ttext 0 -o $@ $^
@@ -201,7 +201,7 @@ fs.img: mkfs README $(UPROGS)
 
 clean: 
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
-	*.o *.d *.asm *.sym vectors.S bootblock entryother \
+	*.o *.a *.d *.asm *.sym vectors.S bootblock entryother \
 	initcode initcode.out kernel xv6.img fs.img kernelmemfs \
 	xv6memfs.img mkfs .gdbinit \
 	$(UPROGS)
