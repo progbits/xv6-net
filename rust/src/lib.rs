@@ -9,6 +9,9 @@ use core::panic::PanicInfo;
 
 mod kalloc;
 mod kernel;
+mod spinlock;
+
+mod e1000;
 
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
@@ -24,12 +27,3 @@ pub fn _Unwind_Resume() {
 #[lang = "eh_personality"]
 #[no_mangle]
 pub extern "C" fn eh_personality() {}
-
-#[no_mangle]
-extern "C" fn hello_rust() {
-    let lang = "Rust";
-    let output = format!("Hello from {lang} in the kernel!\n\x00");
-    unsafe {
-        kernel::cprint(output.as_ptr());
-    }
-}
