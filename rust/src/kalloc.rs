@@ -1,9 +1,8 @@
 use crate::kernel::{kalloc, kfree};
+use crate::mm::PAGE_SIZE;
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::ffi::c_void;
-
-const PAGE_SIZE: usize = 1 << 12;
 
 struct KernelAllocator {}
 

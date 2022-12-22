@@ -5,6 +5,8 @@
 /// all of the memory management code written in Rust.
 ///
 
+pub const PAGE_SIZE: usize = 1 << 12;
+
 // These constants currently have to match the values in memlayout.h
 const EXTMEM: u32 = 0x100000; // Start of extended memory.
 const PHYSTOP: u32 = 0xE000000; // Top physical memory.
