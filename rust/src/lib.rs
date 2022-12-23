@@ -12,6 +12,7 @@ mod kernel;
 mod spinlock;
 
 mod e1000;
+mod ip;
 mod mm;
 mod pci;
 
