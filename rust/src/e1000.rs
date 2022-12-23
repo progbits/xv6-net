@@ -11,6 +11,8 @@ use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::spinlock::Spinlock;
 
+const IRQ_PIC0: u32 = 0xB;
+
 const EEPROM_DONE: u32 = 0x00000010;
 
 // PCI I/O.
@@ -239,7 +241,7 @@ unsafe extern "C" fn e1000_init() {
 
     // Enable interrupts.
     // TODO: Parse APICs tables to determine interrupts.
-    ioapicenable(11, 0);
+    ioapicenable(IRQ_PIC0, 0);
 
     cprint("Done configuring E1000 family device.\n\x00".as_ptr());
 }
