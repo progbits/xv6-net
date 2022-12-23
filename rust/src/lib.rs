@@ -2,16 +2,18 @@
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
 
-#[macro_use]
 extern crate alloc;
 
 use core::panic::PanicInfo;
 
+mod asm;
 mod kalloc;
 mod kernel;
 mod spinlock;
 
 mod e1000;
+mod mm;
+mod pci;
 
 #[panic_handler]
 fn panic(_: &PanicInfo) -> ! {
