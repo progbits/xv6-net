@@ -5,10 +5,12 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr;
+use core::slice;
 
 use crate::asm::{in_dw, out_dw};
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
+use crate::net::handle_packet;
 use crate::spinlock::Spinlock;
 
 const IRQ_PIC0: u32 = 0xB;
@@ -88,8 +90,8 @@ struct RxDesc {
 }
 
 impl RxDesc {
-    fn packet_size(&self) -> u16 {
-        u16::from_le_bytes(self.length)
+    fn packet_size(&self) -> usize {
+        u16::from_le_bytes(self.length) as usize
     }
 
     /// Is the ed of packet (EOP) flag set?
@@ -393,6 +395,13 @@ unsafe fn read_packets(e1000: &mut E1000) {
             cprint("Fragmented packet\n\x00".as_ptr());
             panic!();
         }
+
+        // Handle the packet
+        let slice = slice::from_raw_parts(
+            desc.addr.to_virtual_address().value() as *const u8,
+            desc.packet_size(),
+        );
+        handle_packet(&slice);
 
         e1000.rx_idx += 1;
         if e1000.rx_idx == e1000.rx.len() as u32 {

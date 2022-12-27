@@ -12,8 +12,10 @@ mod kernel;
 mod spinlock;
 
 mod e1000;
+mod ethernet;
 mod ip;
 mod mm;
+mod net;
 mod pci;
 
 #[panic_handler]
