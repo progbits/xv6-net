@@ -73,22 +73,34 @@ static E1000: Spinlock<E1000> = Spinlock::<E1000>::new(E1000 {
 });
 
 /// The receive descriptor.
-#[derive(Default)]
+#[repr(C)]
+#[derive(Debug, Default)]
 struct RxDesc {
     /// The address of the buffer backing this receive descriptor.
     addr: PhysicalAddress,
     /// Padding, as our addresses are only 32b.
-    pad_0: [u8; 4],
+    pad: [u8; 4],
     length: [u8; 2],
     checksum: [u8; 2],
-    status: [u8; 1],
-    errors: [u8; 1],
+    status: u8,
+    errors: u8,
     special: [u8; 2],
 }
 
-impl RxDesc {}
+impl RxDesc {
+    fn packet_size(&self) -> u16 {
+        u16::from_le_bytes(self.length)
+    }
+
+    /// Is the ed of packet (EOP) flag set?
+    fn end_of_packet(&self) -> bool {
+        self.status & (1 << 1) > 0
+    }
+}
 
 /// The transmit descriptor.
+#[repr(C)]
+#[derive(Debug, Default)]
 struct TxDesc {
     addr: u64,
     options: u64,
@@ -99,9 +111,9 @@ struct E1000 {
     mmio_base: u32,
     mac_addr: [u8; 6],
     rx: Vec<RxDesc>,
-    rx_idx: u8,
+    rx_idx: u32,
     tx: Vec<TxDesc>,
-    tx_idx: u8,
+    tx_idx: u32,
 }
 
 impl E1000 {
@@ -228,7 +240,6 @@ unsafe extern "C" fn e1000_init() {
         e1000.mac_addr[(i * 2) as usize] = (data & 0xFF as u32) as u8;
         e1000.mac_addr[(i * 2 + 1) as usize] = (data >> 8 & 0xFF as u32) as u8;
     }
-    cprint(format!("MAC address: {:x?}\n\x00", e1000.mac_addr).as_ptr());
 
     // Setup receive functionality.
     init_rx(&mut e1000);
@@ -273,17 +284,9 @@ unsafe fn init_rx(e1000: &mut E1000) {
     for desc in e1000.rx.iter_mut() {
         let buf = VirtualAddress::new(kalloc() as *mut u8 as u32);
         desc.addr = buf.to_physical_address();
-        cprint(format!("Receive buffer address {:#08x}\n\x00", desc.addr.value()).as_ptr());
     }
 
     // Setup the receive descriptor buffer registers.
-    cprint(
-        format!(
-            "Receive descriptor buffer address {:#08x}\n\x00",
-            e1000.rx.as_ptr() as u32
-        )
-        .as_ptr(),
-    );
     let rx_buf = VirtualAddress::new(e1000.rx.as_ptr() as u32);
     e1000.write_register(DeviceRegister::RDBAL, rx_buf.to_physical_address().value());
     e1000.write_register(DeviceRegister::RDBAH, 0x0);
@@ -376,8 +379,27 @@ unsafe fn intr() {
         panic!();
     } else if mask & InterruptMask::RXT0 as u32 != 0 {
         cprint(b"e1000: rx\n\x00".as_ptr());
-        // e1000_read();
+        read_packets(&mut e1000);
     }
+}
+
+/// Read avaliable packets from the device.
+unsafe fn read_packets(e1000: &mut E1000) {
+    // Read all available packets.
+    let head = e1000.read_register(DeviceRegister::RDH);
+    while e1000.rx_idx != head {
+        let desc = &e1000.rx[e1000.rx_idx as usize];
+        if !desc.end_of_packet() {
+            cprint("Fragmented packet\n\x00".as_ptr());
+            panic!();
+        }
+
+        e1000.rx_idx += 1;
+        if e1000.rx_idx == e1000.rx.len() as u32 {
+            e1000.rx_idx = 0;
+        }
+    }
+    e1000.write_register(DeviceRegister::RDT, e1000.rx_idx - 1);
 }
 
 #[no_mangle]
