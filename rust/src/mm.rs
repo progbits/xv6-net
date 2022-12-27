@@ -15,6 +15,7 @@ const KERNBASE: u32 = 0x80000000; // First kernel virtual address.
 const KERNLINK: u32 = KERNBASE + EXTMEM; // Address where kernel is linked.
 
 /// A physical memory addess.
+#[repr(C)]
 #[derive(Debug, Default)]
 pub struct PhysicalAddress(u32);
 
