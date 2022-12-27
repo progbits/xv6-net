@@ -1,8 +1,10 @@
+/// An IPv4 packet.
 #[derive(Debug)]
 pub struct Ipv4Packet {
     header: Ipv4Header,
 }
 
+/// An IPv4 address.
 #[derive(Debug)]
 pub struct Ipv4Addr([u8; 4]);
 
