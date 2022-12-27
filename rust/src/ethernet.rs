@@ -19,20 +19,21 @@ pub enum Ethertype {
     RARP = 0x8035,        // Reverse Address Resolution Protocol (RARP).
     SLPP = 0x8103,        // Virtual Link Aggregation Control Protocol (VLACP).
     IPV6 = 0x86DD,        // Internet Protocol Version 6 (IPv6).
+    UNKNOWN = 0xFFFF,
 }
 
 impl Ethertype {
-    fn from_slice(buf: &[u8]) -> Option<Ethertype> {
+    fn from_slice(buf: &[u8]) -> Ethertype {
         let mut raw: [u8; 2] = [0; 2];
         raw.clone_from_slice(&buf);
         match u16::from_be_bytes(raw) {
-            0x0800 => Some(Ethertype::IPV4),
-            0x0806 => Some(Ethertype::ARP),
-            0x0842 => Some(Ethertype::WAKE_ON_LAN),
-            0x8035 => Some(Ethertype::RARP),
-            0x8103 => Some(Ethertype::SLPP),
-            0x86DD => Some(Ethertype::IPV6),
-            _ => None,
+            0x0800 => Ethertype::IPV4,
+            0x0806 => Ethertype::ARP,
+            0x0842 => Ethertype::WAKE_ON_LAN,
+            0x8035 => Ethertype::RARP,
+            0x8103 => Ethertype::SLPP,
+            0x86DD => Ethertype::IPV6,
+            _ => Ethertype::IPV6,
         }
     }
 }
@@ -45,28 +46,16 @@ impl Ethertype {
 pub struct EthernetHeader {
     destination: EthernetAddress,
     source: EthernetAddress,
-    ethertype: Ethertype,
+    pub ethertype: Ethertype,
 }
 
 impl EthernetHeader {
-    pub fn new(
-        source: EthernetAddress,
-        destination: EthernetAddress,
-        ethertype: Ethertype,
-    ) -> EthernetHeader {
-        EthernetHeader {
-            source,
-            destination,
-            ethertype,
-        }
-    }
-
     /// Creates a new EthernetHeader from a slice of bytes.
     pub fn from_slice(buf: &[u8]) -> EthernetHeader {
         EthernetHeader {
             destination: EthernetAddress::from_slice(&buf[0..6]),
             source: EthernetAddress::from_slice(&buf[6..12]),
-            ethertype: Ethertype::from_slice(&buf[12..14]).unwrap(),
+            ethertype: Ethertype::from_slice(&buf[12..14]),
         }
     }
 }
