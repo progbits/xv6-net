@@ -1,12 +1,10 @@
 /// An ethernet (MAC) address.
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EthernetAddress([u8; 6]);
 
 impl EthernetAddress {
-    fn from_slice(buf: &[u8]) -> EthernetAddress {
-        let mut addr: [u8; 6] = [0; 6];
-        addr[..].copy_from_slice(buf);
-        EthernetAddress(addr)
+    pub fn from_slice(buf: &[u8]) -> EthernetAddress {
+        EthernetAddress([buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]])
     }
 }
 
@@ -23,7 +21,7 @@ pub enum Ethertype {
 }
 
 impl Ethertype {
-    fn from_slice(buf: &[u8]) -> Ethertype {
+    pub fn from_slice(buf: &[u8]) -> Ethertype {
         let mut raw: [u8; 2] = [0; 2];
         raw.clone_from_slice(&buf);
         match u16::from_be_bytes(raw) {

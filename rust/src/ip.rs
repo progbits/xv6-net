@@ -5,13 +5,17 @@ pub struct Ipv4Packet {
 }
 
 /// An IPv4 address.
-#[derive(Debug)]
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Ipv4Addr([u8; 4]);
 
 impl Ipv4Addr {
     /// Construct a new Ipv4Addr from its components.
     pub fn new(a: u8, b: u8, c: u8, d: u8) -> Ipv4Addr {
         Ipv4Addr([a, b, c, d])
+    }
+
+    pub fn from_slice(buf: &[u8]) -> Ipv4Addr {
+        Ipv4Addr([buf[0], buf[1], buf[2], buf[3]])
     }
 
     /// Return the byte representation of an Ipv4Addr.
