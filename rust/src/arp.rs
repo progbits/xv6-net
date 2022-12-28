@@ -100,4 +100,19 @@ impl Packet {
             tpa: Ipv4Addr::from_slice(&buf[24..]),
         }
     }
+
+    /// Create a new ARP response from a request.
+    pub fn from_request(request: &Packet, mac_address: EthernetAddress) -> Packet {
+        Packet {
+            htype: HardwareType::Ethernet,
+            ptype: ProtocolType::Ipv4,
+            hlen: 0x06,
+            plen: 0x04,
+            oper: Operation::Reply,
+            sha: mac_address,
+            spa: request.tpa,
+            tha: request.sha,
+            tpa: request.spa,
+        }
+    }
 }
