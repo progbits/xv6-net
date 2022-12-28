@@ -5,7 +5,7 @@ pub struct Ipv4Packet {
 }
 
 /// An IPv4 address.
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Ipv4Addr([u8; 4]);
 
 impl Ipv4Addr {
