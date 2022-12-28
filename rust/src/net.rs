@@ -23,7 +23,7 @@ pub unsafe fn handle_packet(data: &[u8], ctx: &PacketContext) {
     cprint(format!("{:x?}\n\x00", ethernet_header).as_ptr());
     match ethernet_header.ethertype {
         Ethertype::IPV4 => cprint("IPV4 Packet\n\x00".as_ptr()),
-        Ethertype::ARP => handle_arp(&data[14..]),
+        Ethertype::ARP => handle_arp(&data[14..], &ctx),
         Ethertype::WAKE_ON_LAN => cprint("WAKE_ON_LAN Packet\n\x00".as_ptr()),
         Ethertype::RARP => cprint("RARP Packet\n\x00".as_ptr()),
         Ethertype::SLPP => cprint("SLPP Packet\n\x00".as_ptr()),
@@ -33,12 +33,19 @@ pub unsafe fn handle_packet(data: &[u8], ctx: &PacketContext) {
 }
 
 /// Handle an ARP packet.
-pub unsafe fn handle_arp(data: &[u8]) {
+pub unsafe fn handle_arp(data: &[u8], ctx: &PacketContext) {
     let arp_packet = arp::Packet::from_slice(&data);
 
     match arp_packet.oper {
         arp::Operation::Request => {
-            cprint(format!("ARP Request for {:?}\n\x00", arp_packet.tpa).as_ptr());
+            // Is this a request for us?
+            if arp_packet.tpa == Ipv4Addr::from_slice(&IpAddress) {
+                cprint(format!("ARP request for us ({:?})\n\x00", arp_packet.tpa).as_ptr());
+                // Build a new reply.
+                cprint("Building reply from request\n\x00".as_ptr());
+                let reply = arp::Packet::from_request(&arp_packet, ctx.mac_address);
+                cprint("Built reply from request\n\x00".as_ptr());
+            }
         }
         arp::Operation::Reply => {
             cprint("ARP Response\n\x00".as_ptr());
