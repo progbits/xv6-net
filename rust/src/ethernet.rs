@@ -6,6 +6,10 @@ impl EthernetAddress {
     pub fn from_slice(buf: &[u8]) -> EthernetAddress {
         EthernetAddress([buf[0], buf[1], buf[2], buf[3], buf[4], buf[5]])
     }
+
+    pub fn as_bytes(&self) -> [u8; 6] {
+        self.0
+    }
 }
 
 /// The small subset of Ethertype values we care about.
