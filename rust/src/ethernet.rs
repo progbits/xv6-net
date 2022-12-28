@@ -1,5 +1,5 @@
 /// An ethernet (MAC) address.
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EthernetAddress([u8; 6]);
 
 impl EthernetAddress {
@@ -13,7 +13,7 @@ impl EthernetAddress {
 }
 
 /// The small subset of Ethertype values we care about.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Ethertype {
     IPV4 = 0x0800,        // Internet Protocol version 4 (IPv4).
     ARP = 0x0806,         // Address Resolution Protocol (ARP).
