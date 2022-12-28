@@ -8,6 +8,7 @@ use core::ptr;
 use core::slice;
 
 use crate::asm::{in_dw, out_dw};
+use crate::ethernet::EthernetAddress;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::net::handle_packet;
@@ -67,7 +68,7 @@ enum InterruptMask {
 
 static E1000: Spinlock<E1000> = Spinlock::<E1000>::new(E1000 {
     mmio_base: 0x0,
-    mac_addr: [0; 6],
+    mac_addr: None,
     rx: vec![],
     rx_idx: 0,
     tx: vec![],
@@ -111,7 +112,7 @@ struct TxDesc {
 /// A representation of the e1000 family device state.
 struct E1000 {
     mmio_base: u32,
-    mac_addr: [u8; 6],
+    mac_addr: Option<EthernetAddress>,
     rx: Vec<RxDesc>,
     rx_idx: u32,
     tx: Vec<TxDesc>,
@@ -128,6 +129,12 @@ impl E1000 {
     unsafe fn write_register(&self, r: DeviceRegister, data: u32) {
         core::ptr::write_volatile((self.mmio_base + r as u32) as *mut u32, data);
     }
+}
+
+/// Return the hardware adddress of the configured network device.
+pub fn mac_address() -> Option<EthernetAddress> {
+    let e1000 = E1000.lock();
+    return e1000.mac_addr.clone();
 }
 
 /// Read a PCI vendor identifier.
@@ -232,6 +239,7 @@ unsafe extern "C" fn e1000_init() {
     // Read the MAC address.
     // TODO: Lock EEPROM.
     let eerd_ptr = e1000.mmio_base + DeviceRegister::EERD as u32;
+    let mut mac_addr = [0u8; 6];
     for i in 0..3 {
         core::ptr::write_volatile(eerd_ptr as *mut u32, 0x00000001 | i << 8);
         let mut data = core::ptr::read_volatile(eerd_ptr as *const u32);
@@ -239,9 +247,11 @@ unsafe extern "C" fn e1000_init() {
             data = core::ptr::read_volatile(eerd_ptr as *const u32);
         }
         data >>= 16;
-        e1000.mac_addr[(i * 2) as usize] = (data & 0xFF as u32) as u8;
-        e1000.mac_addr[(i * 2 + 1) as usize] = (data >> 8 & 0xFF as u32) as u8;
+
+        mac_addr[(i * 2) as usize] = (data & 0xFF as u32) as u8;
+        mac_addr[(i * 2 + 1) as usize] = (data >> 8 & 0xFF as u32) as u8;
     }
+    e1000.mac_addr = Some(EthernetAddress::from_slice(&mac_addr));
 
     // Setup receive functionality.
     init_rx(&mut e1000);
@@ -270,17 +280,21 @@ unsafe extern "C" fn e1000_init() {
 unsafe fn init_rx(e1000: &mut E1000) {
     // Write the MAC addres into the RAL and RAH registers.
     // Pad the MAC address to 8 bytes.
-    let mut mac_padded: [u8; 8] = [0; 8];
-    mac_padded[..6].clone_from_slice(&e1000.mac_addr);
+    match &e1000.mac_addr {
+        Some(x) => {
+            let mut mac_padded: [u8; 8] = [0; 8];
+            mac_padded[..6].clone_from_slice(&x.as_bytes());
 
-    // Copy out the low...
-    let mac_low: u32 = u32::from_le_bytes(mac_padded[..4].try_into().unwrap());
-    e1000.write_register(DeviceRegister::RAL, mac_low);
+            // Copy out the low...
+            let mac_low: u32 = u32::from_le_bytes(mac_padded[..4].try_into().unwrap());
+            e1000.write_register(DeviceRegister::RAL, mac_low);
 
-    // ...and high bytes of the MAC address.
-    let mac_high: u32 = u32::from_le_bytes(mac_padded[4..].try_into().unwrap());
-    e1000.write_register(DeviceRegister::RAH, mac_high);
-
+            // ...and high bytes of the MAC address.
+            let mac_high: u32 = u32::from_le_bytes(mac_padded[4..].try_into().unwrap());
+            e1000.write_register(DeviceRegister::RAH, mac_high);
+        }
+        None => panic!(),
+    }
     // Allocate a recieve buffer for each of the descriptors.
     e1000.rx.resize_with(256, Default::default);
     for desc in e1000.rx.iter_mut() {
@@ -368,19 +382,19 @@ unsafe fn intr() {
     // Read the interrupt register and dispatch to the correct handler.
     let mask = e1000.read_register(DeviceRegister::ICR);
     if mask & InterruptMask::TXDW as u32 != 0 {
-        cprint(b"e1000: tx descriptor write-back\n\x00".as_ptr());
+        // cprint(b"e1000: tx descriptor write-back\n\x00".as_ptr());
     } else if mask & InterruptMask::TXQE as u32 != 0 {
-        cprint(b"e1000: tx queue empty\n\x00".as_ptr());
+        // cprint(b"e1000: tx queue empty\n\x00".as_ptr());
     } else if mask & InterruptMask::LSC as u32 != 0 {
-        cprint(b"e1000: link status change seq error\n\x00".as_ptr());
+        // cprint(b"e1000: link status change seq error\n\x00".as_ptr());
     } else if mask & InterruptMask::RXSEQ as u32 != 0 {
-        cprint(b"e1000: rx seq error\n\x00".as_ptr());
+        // cprint(b"e1000: rx seq error\n\x00".as_ptr());
     } else if mask & InterruptMask::RXDMTO as u32 != 0 {
-        cprint(b"e1000: rx min threshold\n\x00".as_ptr());
+        // cprint(b"e1000: rx min threshold\n\x00".as_ptr());
     } else if mask & InterruptMask::RXO as u32 != 0 {
         panic!();
     } else if mask & InterruptMask::RXT0 as u32 != 0 {
-        cprint(b"e1000: rx\n\x00".as_ptr());
+        // cprint(b"e1000: rx\n\x00".as_ptr());
         read_packets(&mut e1000);
     }
 }
