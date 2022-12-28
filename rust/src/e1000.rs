@@ -12,6 +12,7 @@ use crate::ethernet::EthernetAddress;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::net::handle_packet;
+use crate::net::PacketContext;
 use crate::spinlock::Spinlock;
 
 const IRQ_PIC0: u32 = 0xB;
@@ -129,12 +130,11 @@ impl E1000 {
     unsafe fn write_register(&self, r: DeviceRegister, data: u32) {
         core::ptr::write_volatile((self.mmio_base + r as u32) as *mut u32, data);
     }
-}
 
-/// Return the hardware adddress of the configured network device.
-pub fn mac_address() -> Option<EthernetAddress> {
-    let e1000 = E1000.lock();
-    return e1000.mac_addr.clone();
+    /// Return the hardware adddress of the network device.
+    fn mac_address(&self) -> Option<EthernetAddress> {
+        self.mac_addr.clone()
+    }
 }
 
 /// Read a PCI vendor identifier.
@@ -415,7 +415,12 @@ unsafe fn read_packets(e1000: &mut E1000) {
             desc.addr.to_virtual_address().value() as *const u8,
             desc.packet_size(),
         );
-        handle_packet(&slice);
+
+        // Build the context for handoff to the network stack.
+        let ctx = PacketContext {
+            mac_address: e1000.mac_address().unwrap(),
+        };
+        handle_packet(&slice, &ctx);
 
         e1000.rx_idx += 1;
         if e1000.rx_idx == e1000.rx.len() as u32 {
