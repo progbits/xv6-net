@@ -6,6 +6,8 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 
+use crate::kernel::cprint;
+
 mod asm;
 mod kalloc;
 mod kernel;
@@ -20,7 +22,10 @@ mod net;
 mod pci;
 
 #[panic_handler]
-fn panic(_: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    unsafe {
+        cprint("Panic!\n\x00".as_ptr());
+    }
     loop {}
 }
 
