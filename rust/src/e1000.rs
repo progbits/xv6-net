@@ -371,12 +371,6 @@ impl NetworkDevice for E1000 {
             panic!();
         }
 
-        // Build the packet buffer and context for handoff to the network stack.
-        let packet_buffer = PacketBuffer::new(
-            desc.addr.to_virtual_address().value() as *const u8,
-            desc.packet_size(),
-        );
-
         self.rx_idx += 1;
         if self.rx_idx == self.rx.len() as u32 {
             self.rx_idx = 0;
@@ -385,6 +379,10 @@ impl NetworkDevice for E1000 {
         unsafe {
             self.write_register(DeviceRegister::RDT, self.rx_idx - 1);
         }
-        Some(packet_buffer)
+
+        Some(PacketBuffer::new(
+            desc.addr.to_virtual_address().value() as *const u8,
+            desc.packet_size(),
+        ))
     }
 }
