@@ -2,6 +2,7 @@ use alloc::collections::BTreeMap;
 
 use crate::ethernet::EthernetAddress;
 use crate::ip::Ipv4Addr;
+use crate::net::FromBuffer;
 use crate::spinlock::Spinlock;
 
 /// ARP Cache
@@ -114,5 +115,15 @@ impl Packet {
             tha: request.sha,
             tpa: request.spa,
         }
+    }
+}
+
+impl FromBuffer for Packet {
+    fn from_buffer(buf: &[u8]) -> Packet {
+        Packet::from_slice(&buf)
+    }
+
+    fn size(&self) -> usize {
+        26
     }
 }

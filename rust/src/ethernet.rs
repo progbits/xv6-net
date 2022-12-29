@@ -1,3 +1,5 @@
+use crate::net::FromBuffer;
+
 /// An ethernet (MAC) address.
 #[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EthernetAddress([u8; 6]);
@@ -45,19 +47,29 @@ impl Ethertype {
 /// Represents an Ethernet frame header.
 #[derive(Debug)]
 #[repr(C)]
-pub struct EthernetHeader {
+pub struct EthernetFrame {
     destination: EthernetAddress,
     source: EthernetAddress,
     pub ethertype: Ethertype,
 }
 
-impl EthernetHeader {
+impl EthernetFrame {
     /// Creates a new EthernetHeader from a slice of bytes.
-    pub fn from_slice(buf: &[u8]) -> EthernetHeader {
-        EthernetHeader {
+    pub fn from_slice(buf: &[u8]) -> EthernetFrame {
+        EthernetFrame {
             destination: EthernetAddress::from_slice(&buf[0..6]),
             source: EthernetAddress::from_slice(&buf[6..12]),
             ethertype: Ethertype::from_slice(&buf[12..14]),
         }
+    }
+}
+
+impl FromBuffer for EthernetFrame {
+    fn from_buffer(buf: &[u8]) -> EthernetFrame {
+        EthernetFrame::from_slice(&buf)
+    }
+
+    fn size(&self) -> usize {
+        14
     }
 }

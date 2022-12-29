@@ -11,8 +11,8 @@ use crate::asm::{in_dw, out_dw};
 use crate::ethernet::EthernetAddress;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
-use crate::net::handle_packet;
 use crate::net::PacketContext;
+use crate::net::{handle_packet, PacketBuffer};
 use crate::spinlock::Spinlock;
 
 const IRQ_PIC0: u32 = 0xB;
@@ -400,6 +400,10 @@ unsafe fn intr() {
 }
 
 /// Read avaliable packets from the device.
+///
+/// TODO:
+/// 	- Handle fragmented packets.
+/// 	- Loan out PacketBuffers
 unsafe fn read_packets(e1000: &mut E1000) {
     // Read all available packets.
     let head = e1000.read_register(DeviceRegister::RDH);
@@ -410,17 +414,15 @@ unsafe fn read_packets(e1000: &mut E1000) {
             panic!();
         }
 
-        // Handle the packet
-        let slice = slice::from_raw_parts(
+        // Build the packet buffer and context for handoff to the network stack.
+        let packet_buffer = PacketBuffer::new(
             desc.addr.to_virtual_address().value() as *const u8,
             desc.packet_size(),
         );
-
-        // Build the context for handoff to the network stack.
         let ctx = PacketContext {
             mac_address: e1000.mac_address().unwrap(),
         };
-        handle_packet(&slice, &ctx);
+        handle_packet(packet_buffer, &ctx);
 
         e1000.rx_idx += 1;
         if e1000.rx_idx == e1000.rx.len() as u32 {
