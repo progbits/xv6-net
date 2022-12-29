@@ -7,21 +7,17 @@ use alloc::vec::Vec;
 use core::ptr;
 use core::slice;
 
-use crate::asm::{in_dw, out_dw};
 use crate::ethernet::EthernetAddress;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::net::PacketContext;
-use crate::net::{handle_packet, PacketBuffer};
+use crate::net::{handle_packet, NetworkDevice, PacketBuffer};
+use crate::pci;
 use crate::spinlock::Spinlock;
 
 const IRQ_PIC0: u32 = 0xB;
 
 const EEPROM_DONE: u32 = 0x00000010;
-
-// PCI I/O.
-const PCI_CONFIG_ADDR: u16 = 0xCF8;
-const PCI_CONFIG_DATA: u16 = 0xCFC;
 
 // Device identifiers.
 const VENDOR_ID: u16 = 0x8086; // Intel.
@@ -137,59 +133,18 @@ impl E1000 {
     }
 }
 
-/// Read a PCI vendor identifier.
-unsafe fn read_vendor_id(base_addr: u32) -> u16 {
-    let mut result: u16 = 0x0;
-    for i in (0..=1).rev() {
-        out_dw(PCI_CONFIG_ADDR, base_addr | i);
-        let data = in_dw(PCI_CONFIG_DATA);
-        result |= (data as u16) << (i * 8);
-    }
-    result
-}
-
-/// Read a PCI device identifier.
-unsafe fn read_device_id(base_addr: u32) -> u16 {
-    let mut result: u16 = 0x0;
-    let mut j = 1;
-    for i in (2..=3).rev() {
-        out_dw(PCI_CONFIG_ADDR, base_addr | i);
-        let data = in_dw(PCI_CONFIG_DATA);
-        result |= (data as u16) << (j * 8);
-        j -= 1;
-    }
-    result
-}
-
-/// Setup the device command register.
-/// 	- Set the bus master flag.
-unsafe fn set_command_reg(device: u32) {
-    let mut command: u32 = 0x0;
-    let mut j = 1;
-    for i in (4..=5).rev() {
-        out_dw(PCI_CONFIG_ADDR, (0x80000000 | device << 11) | i);
-        let data = in_dw(PCI_CONFIG_DATA);
-        command |= data << (j * 8);
-        j -= 1;
+impl NetworkDevice for E1000 {
+    fn mac_address(&self) -> EthernetAddress {
+        self.mac_addr.unwrap()
     }
 
-    // Set the bus master flag and write back the command register.
-    command |= 1 << 2;
-    out_dw(PCI_CONFIG_ADDR, (0x80000000 | device << 11) | 4);
-    out_dw(PCI_CONFIG_DATA, command);
-}
-
-/// Read the `n`th BAR register.
-unsafe fn read_bar(device: u32, n: u8) -> u32 {
-    let mut result: u32 = 0x0;
-    let mut j = 3;
-    for i in (16..=19).rev() {
-        out_dw(PCI_CONFIG_ADDR, (0x80000000 | device << 11) | i);
-        let data = in_dw(PCI_CONFIG_DATA);
-        result |= data << (j * 8);
-        j -= 1;
+    fn send(&self, buf: PacketBuffer) {
+        // TODO
     }
-    result
+
+    fn recv(&self) -> Option<PacketBuffer> {
+        None
+    }
 }
 
 /// Initialize an E1000 family ethernet card.
@@ -219,8 +174,8 @@ unsafe extern "C" fn e1000_init() {
         let device_addr: u32 = 0x80000000 | (device << 11);
 
         // Read the vendor and device id of the current device.
-        let vendor_id = read_vendor_id(device_addr);
-        let device_id = read_device_id(device_addr);
+        let vendor_id = pci::read_vendor_id(device_addr);
+        let device_id = pci::read_device_id(device_addr);
         if vendor_id == VENDOR_ID && device_id == DEVICE_ID {
             target_device = Some(device);
             break;
@@ -233,8 +188,8 @@ unsafe extern "C" fn e1000_init() {
     }
 
     // Configure the device command register and read the MMIO base register.
-    set_command_reg(target_device.unwrap());
-    e1000.mmio_base = read_bar(target_device.unwrap(), 0);
+    pci::set_bus_master(target_device.unwrap());
+    e1000.mmio_base = pci::read_bar(target_device.unwrap(), 0);
 
     // Read the MAC address.
     // TODO: Lock EEPROM.
