@@ -364,26 +364,27 @@ impl NetworkDevice for E1000 {
                 // Ring buffer is empty.
                 return None;
             }
-
-            let desc = &self.rx[self.rx_idx as usize];
-            if !desc.end_of_packet() {
-                cprint("Fragmented packet\n\x00".as_ptr());
-                panic!();
-            }
-
-            // Build the packet buffer and context for handoff to the network stack.
-            let packet_buffer = PacketBuffer::new(
-                desc.addr.to_virtual_address().value() as *const u8,
-                desc.packet_size(),
-            );
-
-            self.rx_idx += 1;
-            if self.rx_idx == self.rx.len() as u32 {
-                self.rx_idx = 0;
-            }
-            self.write_register(DeviceRegister::RDT, self.rx_idx - 1);
-
-            Some(packet_buffer)
         }
+
+        let desc = &self.rx[self.rx_idx as usize];
+        if !desc.end_of_packet() {
+            panic!();
+        }
+
+        // Build the packet buffer and context for handoff to the network stack.
+        let packet_buffer = PacketBuffer::new(
+            desc.addr.to_virtual_address().value() as *const u8,
+            desc.packet_size(),
+        );
+
+        self.rx_idx += 1;
+        if self.rx_idx == self.rx.len() as u32 {
+            self.rx_idx = 0;
+        }
+
+        unsafe {
+            self.write_register(DeviceRegister::RDT, self.rx_idx - 1);
+        }
+        Some(packet_buffer)
     }
 }
