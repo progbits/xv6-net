@@ -1,16 +1,39 @@
+use alloc::boxed::Box;
 use alloc::format;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::slice;
 
 use crate::arp;
-use crate::e1000;
+use crate::e1000::E1000;
 use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
 use crate::ip::Ipv4Addr;
 use crate::kernel::cprint;
+use crate::spinlock::Spinlock;
 
 /// We have a single, static IP address (10.0.0.2) for now.
 static IpAddress: [u8; 4] = [0x0A, 0x00, 0x00, 0x02];
+
+/// Current assumptions:
+///		- We only have one network device attached to the system
+///		- Some driver initialization routine called on system start-up will register the driver with the network stack.
+pub static NETWORK_DEVICE: Spinlock<Option<Box<dyn NetworkDevice>>> = Spinlock::new(None);
+
+/// Represents a device that can send and receive packets.
+pub trait NetworkDevice {
+    /// The hardware address of the device.
+    fn mac_address(&self) -> EthernetAddress;
+
+    /// Clear interrupts.
+    fn clear_interrupts(&mut self);
+
+    /// Serialize a new packet.
+    fn send(&mut self, buf: PacketBuffer);
+
+    /// Receive a new packet.
+    fn recv(&mut self) -> Option<PacketBuffer>;
+}
 
 /// Represents raw packet data.
 ///
@@ -46,12 +69,6 @@ impl PacketBuffer {
     }
 }
 
-/// The context associated with a packet.
-pub struct PacketContext {
-    /// The hardware address associated with the interface that received the packet.
-    pub mac_address: EthernetAddress,
-}
-
 /// Represents a type that can be parsed from a PacketBuffer.
 pub trait FromBuffer {
     /// Parse a new instance from a slice of bytes.
@@ -61,8 +78,43 @@ pub trait FromBuffer {
     fn size(&self) -> usize;
 }
 
+/// Initialize the network stack.
+///
+/// Called on system start-up to initialize the kernel network stack. Routine searches for a compatible E1000 family network device and registers that device in the `NETWORK_DEVICE` global.
+#[no_mangle]
+unsafe extern "C" fn rustnetinit() {
+    cprint("Configuring E1000 family device.\n\x00".as_ptr());
+    let e1000_device = match E1000::new() {
+        Some(x) => x,
+        None => panic!(),
+    };
+    let mut device = NETWORK_DEVICE.lock();
+    *device = Some(Box::new(e1000_device));
+    cprint("Done configuring E1000 family device.\n\x00".as_ptr());
+}
+
+/// Entrypoint for network device interrupts.
+#[no_mangle]
+unsafe extern "C" fn netintr() {
+    let mut device = NETWORK_DEVICE.lock();
+    let mut device: &mut Box<dyn NetworkDevice> = match *device {
+        Some(ref mut x) => x,
+        None => panic!(),
+    };
+    // Clear device interrupt register.
+    device.clear_interrupts();
+
+    // Handle avaliable packets.
+    loop {
+        match device.recv() {
+            Some(b) => handle_packet(b, &device),
+            None => break,
+        }
+    }
+}
+
 /// Main entrypoint into the kernel network stack.
-pub fn handle_packet(mut buffer: PacketBuffer, ctx: &PacketContext) {
+pub fn handle_packet(mut buffer: PacketBuffer, device: &Box<dyn NetworkDevice>) {
     let ethernet_frame = buffer.parse::<EthernetFrame>();
 
     unsafe {
@@ -70,7 +122,7 @@ pub fn handle_packet(mut buffer: PacketBuffer, ctx: &PacketContext) {
     }
     match ethernet_frame.ethertype {
         Ethertype::IPV4 => (),
-        Ethertype::ARP => handle_arp(&mut buffer, &ctx),
+        Ethertype::ARP => handle_arp(&mut buffer, &device),
         Ethertype::WAKE_ON_LAN => (),
         Ethertype::RARP => (),
         Ethertype::SLPP => (),
@@ -80,7 +132,7 @@ pub fn handle_packet(mut buffer: PacketBuffer, ctx: &PacketContext) {
 }
 
 /// Handle an ARP packet.
-pub fn handle_arp(buffer: &mut PacketBuffer, ctx: &PacketContext) {
+pub fn handle_arp(buffer: &mut PacketBuffer, device: &Box<dyn NetworkDevice>) {
     let arp_packet = buffer.parse::<arp::Packet>();
 
     unsafe {
@@ -91,7 +143,8 @@ pub fn handle_arp(buffer: &mut PacketBuffer, ctx: &PacketContext) {
         arp::Operation::Request => {
             // Is this a request for us?
             if arp_packet.tpa == Ipv4Addr::from_slice(&IpAddress) {
-                let _ = arp::Packet::from_request(&arp_packet, ctx.mac_address);
+                let mac = device.mac_address();
+                let _ = arp::Packet::from_request(&arp_packet, mac);
             }
         }
         arp::Operation::Reply => {}

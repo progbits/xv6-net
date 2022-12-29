@@ -11,7 +11,7 @@ static void mpmain(void) __attribute__((noreturn));
 extern pde_t *kpgdir;
 extern char end[]; // first address after kernel loaded from ELF file
 
-extern void e1000_init();
+extern void rustnetinit();
 
 // Bootstrap processor starts running C code here.
 // Allocate a real stack and switch to it, first
@@ -34,7 +34,7 @@ int main(void) {
   netinit();                                  // network stack
   startothers();                              // start other processors
   kinit2(P2V(4 * 1024 * 1024), P2V(PHYSTOP)); // must come after startothers()
-  e1000_init();                               // network driver
+  rustnetinit();                              // network stack
   userinit();                                 // first user process
   mpmain();                                   // finish this processor's setup
 }

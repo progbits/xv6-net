@@ -8,8 +8,7 @@
 #include "traps.h"
 #include "spinlock.h"
 
-void e1000_intr();
-void e1000_intr_rust();
+void netintr();
 
 // Interrupt descriptor table (shared by all CPUs).
 struct gatedesc idt[256];
@@ -67,7 +66,7 @@ void trap(struct trapframe *tf) {
     lapiceoi();
     break;
   case T_IRQ0 + IRQ_PCI0:
-    e1000_intr_rust();
+    netintr();
     lapiceoi();
     break;
   case T_IRQ0 + 7:
