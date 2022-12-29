@@ -62,26 +62,30 @@ impl PacketBuffer {
 }
 
 /// Main entrypoint into the kernel network stack.
-///
-/// TODO: Remove `unsafe`.
-pub unsafe fn handle_packet(mut buffer: PacketBuffer, ctx: &PacketContext) {
+pub fn handle_packet(mut buffer: PacketBuffer, ctx: &PacketContext) {
     let ethernet_frame = buffer.parse::<EthernetFrame>();
 
-    cprint(format!("{:x?}\n\x00", ethernet_frame).as_ptr());
+    unsafe {
+        cprint(format!("{:x?}\n\x00", ethernet_frame).as_ptr());
+    }
     match ethernet_frame.ethertype {
-        Ethertype::IPV4 => cprint("IPV4 Packet\n\x00".as_ptr()),
+        Ethertype::IPV4 => (),
         Ethertype::ARP => handle_arp(&mut buffer, &ctx),
-        Ethertype::WAKE_ON_LAN => cprint("WAKE_ON_LAN Packet\n\x00".as_ptr()),
-        Ethertype::RARP => cprint("RARP Packet\n\x00".as_ptr()),
-        Ethertype::SLPP => cprint("SLPP Packet\n\x00".as_ptr()),
-        Ethertype::IPV6 => cprint("IPV6 Packet\n\x00".as_ptr()),
-        Ethertype::UNKNOWN => cprint("Unknown Packet\n\x00".as_ptr()),
+        Ethertype::WAKE_ON_LAN => (),
+        Ethertype::RARP => (),
+        Ethertype::SLPP => (),
+        Ethertype::IPV6 => (),
+        Ethertype::UNKNOWN => (),
     }
 }
 
 /// Handle an ARP packet.
 pub fn handle_arp(buffer: &mut PacketBuffer, ctx: &PacketContext) {
     let arp_packet = buffer.parse::<arp::Packet>();
+
+    unsafe {
+        cprint(format!("{:x?}\n\x00", arp_packet).as_ptr());
+    }
 
     match arp_packet.oper {
         arp::Operation::Request => {
