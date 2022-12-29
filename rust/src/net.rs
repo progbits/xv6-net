@@ -12,21 +12,6 @@ use crate::kernel::cprint;
 /// We have a single, static IP address (10.0.0.2) for now.
 static IpAddress: [u8; 4] = [0x0A, 0x00, 0x00, 0x02];
 
-/// The context associated with a packet.
-pub struct PacketContext {
-    /// The hardware address associated with the interface that received the packet.
-    pub mac_address: EthernetAddress,
-}
-
-/// Represents a type that can be parsed from a PacketBuffer.
-pub trait FromBuffer {
-    /// Parse a new instance from a slice of bytes.
-    fn from_buffer(buf: &[u8]) -> Self;
-
-    /// The size of the parsed structure, not including any encapsulated data.
-    fn size(&self) -> usize;
-}
-
 /// Represents raw packet data.
 ///
 /// TODO: Stack allocated buffer?
@@ -59,6 +44,21 @@ impl PacketBuffer {
         self.offset += value.size();
         value
     }
+}
+
+/// The context associated with a packet.
+pub struct PacketContext {
+    /// The hardware address associated with the interface that received the packet.
+    pub mac_address: EthernetAddress,
+}
+
+/// Represents a type that can be parsed from a PacketBuffer.
+pub trait FromBuffer {
+    /// Parse a new instance from a slice of bytes.
+    fn from_buffer(buf: &[u8]) -> Self;
+
+    /// The size of the parsed structure, not including any encapsulated data.
+    fn size(&self) -> usize;
 }
 
 /// Main entrypoint into the kernel network stack.
