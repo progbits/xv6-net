@@ -1,4 +1,4 @@
-use crate::net::FromBuffer;
+use crate::net::{FromBuffer, ToBuffer};
 
 /// An ethernet (MAC) address.
 #[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -37,7 +37,19 @@ impl Ethertype {
             0x8035 => Ethertype::RARP,
             0x8103 => Ethertype::SLPP,
             0x86DD => Ethertype::IPV6,
-            _ => Ethertype::IPV6,
+            _ => Ethertype::UNKNOWN,
+        }
+    }
+
+    fn as_bytes(&self) -> [u8; 2] {
+        match self {
+            Ethertype::IPV4 => 0x0800u16.to_be_bytes(),
+            Ethertype::ARP => 0x0806u16.to_be_bytes(),
+            Ethertype::WAKE_ON_LAN => 0x0842u16.to_be_bytes(),
+            Ethertype::RARP => 0x0842u16.to_be_bytes(),
+            Ethertype::SLPP => 0x8035u16.to_be_bytes(),
+            Ethertype::IPV6 => 0x8103u16.to_be_bytes(),
+            Ethertype::UNKNOWN => 0xFFFFu16.to_be_bytes(),
         }
     }
 }
@@ -48,12 +60,24 @@ impl Ethertype {
 #[derive(Debug)]
 #[repr(C)]
 pub struct EthernetFrame {
-    destination: EthernetAddress,
-    source: EthernetAddress,
+    pub destination: EthernetAddress,
+    pub source: EthernetAddress,
     pub ethertype: Ethertype,
 }
 
 impl EthernetFrame {
+    pub fn new(
+        destination: EthernetAddress,
+        source: EthernetAddress,
+        ethertype: Ethertype,
+    ) -> EthernetFrame {
+        EthernetFrame {
+            destination,
+            source,
+            ethertype,
+        }
+    }
+
     /// Creates a new EthernetHeader from a slice of bytes.
     pub fn from_slice(buf: &[u8]) -> EthernetFrame {
         EthernetFrame {
@@ -67,6 +91,20 @@ impl EthernetFrame {
 impl FromBuffer for EthernetFrame {
     fn from_buffer(buf: &[u8]) -> EthernetFrame {
         EthernetFrame::from_slice(&buf)
+    }
+
+    fn size(&self) -> usize {
+        14
+    }
+}
+
+impl ToBuffer for EthernetFrame {
+    fn to_buffer(&self, buf: &mut [u8]) {
+        let mut tmp = [0u8; 14];
+        tmp[0..6].copy_from_slice(&self.destination.as_bytes());
+        tmp[6..12].copy_from_slice(&self.source.as_bytes());
+        tmp[12..14].copy_from_slice(&self.ethertype.as_bytes());
+        buf.copy_from_slice(&tmp);
     }
 
     fn size(&self) -> usize {

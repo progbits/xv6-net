@@ -2,7 +2,8 @@ use alloc::collections::BTreeMap;
 
 use crate::ethernet::EthernetAddress;
 use crate::ip::Ipv4Addr;
-use crate::net::FromBuffer;
+use crate::kernel::cprint;
+use crate::net::{FromBuffer, ToBuffer};
 use crate::spinlock::Spinlock;
 
 /// ARP Cache
@@ -39,6 +40,13 @@ impl HardwareType {
             _ => HardwareType::Unknown,
         }
     }
+
+    fn as_bytes(&self) -> [u8; 2] {
+        match self {
+            HardwareType::Ethernet => 0x0001u16.to_be_bytes(),
+            HardwareType::Unknown => 0x0000u16.to_be_bytes(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -52,6 +60,13 @@ impl ProtocolType {
         match u16::from_be_bytes([buf[0], buf[1]]) {
             0x0800 => ProtocolType::Ipv4,
             _ => ProtocolType::Unknown,
+        }
+    }
+
+    fn as_bytes(&self) -> [u8; 2] {
+        match self {
+            ProtocolType::Ipv4 => 0x0800u16.to_be_bytes(),
+            ProtocolType::Unknown => 0x0000u16.to_be_bytes(),
         }
     }
 }
@@ -69,6 +84,14 @@ impl Operation {
             0x0001 => Operation::Request,
             0x0002 => Operation::Reply,
             _ => Operation::Unknown,
+        }
+    }
+
+    fn as_bytes(&self) -> [u8; 2] {
+        match self {
+            Operation::Request => 0x0001u16.to_be_bytes(),
+            Operation::Reply => 0x0002u16.to_be_bytes(),
+            Operation::Unknown => 0xFFFFu16.to_be_bytes(),
         }
     }
 }
@@ -124,6 +147,26 @@ impl FromBuffer for Packet {
     }
 
     fn size(&self) -> usize {
-        26
+        28
+    }
+}
+
+impl ToBuffer for Packet {
+    fn to_buffer(&self, buf: &mut [u8]) {
+        let mut tmp = [0u8; 28];
+        tmp[0..2].copy_from_slice(&self.htype.as_bytes());
+        tmp[2..4].copy_from_slice(&self.ptype.as_bytes());
+        tmp[4] = self.hlen;
+        tmp[5] = self.plen;
+        tmp[6..8].copy_from_slice(&self.oper.as_bytes());
+        tmp[8..14].copy_from_slice(&self.sha.as_bytes());
+        tmp[14..18].copy_from_slice(&self.spa.as_bytes());
+        tmp[18..24].copy_from_slice(&self.tha.as_bytes());
+        tmp[24..28].copy_from_slice(&self.tpa.as_bytes());
+        buf.copy_from_slice(&tmp);
+    }
+
+    fn size(&self) -> usize {
+        28
     }
 }

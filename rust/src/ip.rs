@@ -15,7 +15,7 @@ impl Ipv4Addr {
     }
 
     /// Return the byte representation of an Ipv4Addr.
-    pub fn to_bytes(&self) -> [u8; 4] {
+    pub fn as_bytes(&self) -> [u8; 4] {
         self.0
     }
 }
@@ -147,8 +147,8 @@ impl Ipv4Packet {
         bytes[10..12].copy_from_slice(&0u16.to_be_bytes());
 
         // Source and destination address.
-        bytes[12..16].copy_from_slice(&self.source_address.to_bytes());
-        bytes[16..20].copy_from_slice(&self.destination_address.to_bytes());
+        bytes[12..16].copy_from_slice(&self.source_address.as_bytes());
+        bytes[16..20].copy_from_slice(&self.destination_address.as_bytes());
 
         // Now `bytes` contains the complete header, calculate the checksum.
         let checksum = &Ipv4Packet::calculate_checksum(&bytes);

@@ -45,14 +45,26 @@ pub struct PacketBuffer {
     size: usize,
     /// The number of bytes we have parsed so far into the buffer.
     offset: usize,
+    /// Has the buffer been written to?
+    written: bool,
 }
 
 impl PacketBuffer {
-    pub fn new(data: *const u8, size: usize) -> PacketBuffer {
+    pub fn new(size: usize) -> PacketBuffer {
+        PacketBuffer {
+            buf: vec![0u8; size],
+            size: size,
+            offset: 0,
+            written: false,
+        }
+    }
+
+    pub fn new_from_bytes(data: *const u8, size: usize) -> PacketBuffer {
         let mut packet_buffer = PacketBuffer {
             buf: vec![0u8; size],
             size: size,
             offset: 0,
+            written: false,
         };
         unsafe {
             core::ptr::copy(data, packet_buffer.buf.as_mut_ptr(), size);
@@ -68,12 +80,32 @@ impl PacketBuffer {
         value
     }
 
+    /// Serialize a new packet to the buffer.
+    /// TODO: Zero-copy?
+    pub fn serialize<T: ToBuffer>(&mut self, value: &T) {
+        self.offset += value.size();
+        self.written = true;
+        let start = self.buf.len() - self.offset;
+        let end = start + value.size();
+        unsafe {
+            cprint(format!("writing to buffer {}, {}\n\x00", start, end).as_ptr());
+        }
+        value.to_buffer(&mut self.buf[start..end]);
+    }
+
     pub fn len(&self) -> usize {
-        self.buf.len()
+        self.offset
     }
 
     pub fn as_bytes(&self) -> &[u8] {
-        self.buf.as_slice()
+        if self.written {
+            unsafe {
+                cprint(format!("offset {}\n\x00", self.offset).as_ptr());
+            }
+            &self.buf[self.buf.len() - self.offset..]
+        } else {
+            self.buf.as_slice()
+        }
     }
 }
 
@@ -83,6 +115,15 @@ pub trait FromBuffer {
     fn from_buffer(buf: &[u8]) -> Self;
 
     /// The size of the parsed structure, not including any encapsulated data.
+    fn size(&self) -> usize;
+}
+
+/// Represents a type that can be serialized to a PacketBuffer.
+pub trait ToBuffer {
+    /// Parse a new instance from a slice of bytes.
+    fn to_buffer(&self, buf: &mut [u8]);
+
+    /// The size of the serialized structure, including any encapsulated data.
     fn size(&self) -> usize;
 }
 
@@ -112,30 +153,38 @@ unsafe extern "C" fn netintr() {
     // Clear device interrupt register.
     device.clear_interrupts();
 
-    // Handle avaliable packets.
+    // Handle all avaliable packets.
     loop {
         match device.recv() {
-            Some(b) => handle_packet(b, &device),
+            Some(b) => handle_packet(b, &mut device),
             None => break,
         }
     }
 }
 
 /// Main entrypoint into the kernel network stack.
-pub fn handle_packet(mut buffer: PacketBuffer, device: &Box<dyn NetworkDevice>) {
+///
+/// Handles a single, ethernet frame encapsulated packet. Potentially writes packets back to the network device.
+///
+/// TODO: A better abstraction for serializing packets.
+pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) {
     let ethernet_frame = buffer.parse::<EthernetFrame>();
-
     unsafe {
         cprint(format!("{:x?}\n\x00", ethernet_frame).as_ptr());
     }
+
     match ethernet_frame.ethertype {
-        Ethertype::IPV4 => {
-            let ip_packet = buffer.parse::<Ipv4Packet>();
-            unsafe {
-                cprint(format!("{:x?}\n\x00", ethernet_frame).as_ptr());
+        Ethertype::IPV4 => (),
+        Ethertype::ARP => match handle_arp(&mut buffer, &device) {
+            Some(mut x) => {
+                // Encapsulate the ARP response.
+                let ethernet_frame =
+                    EthernetFrame::new(ethernet_frame.source, device.mac_address(), Ethertype::ARP);
+                x.serialize(&ethernet_frame);
+                device.send(x);
             }
-        }
-        Ethertype::ARP => handle_arp(&mut buffer, &device),
+            None => (),
+        },
         Ethertype::WAKE_ON_LAN => (),
         Ethertype::RARP => (),
         Ethertype::SLPP => (),
@@ -145,22 +194,28 @@ pub fn handle_packet(mut buffer: PacketBuffer, device: &Box<dyn NetworkDevice>) 
 }
 
 /// Handle an ARP packet.
-pub fn handle_arp(buffer: &mut PacketBuffer, device: &Box<dyn NetworkDevice>) {
+///
+/// Handle an ARP packet, optionally returning any response that needs to be serialized to the network.
+pub fn handle_arp(
+    buffer: &mut PacketBuffer,
+    device: &Box<dyn NetworkDevice>,
+) -> Option<PacketBuffer> {
     let arp_packet = buffer.parse::<arp::Packet>();
-
-    unsafe {
-        cprint(format!("{:x?}\n\x00", arp_packet).as_ptr());
-    }
 
     match arp_packet.oper {
         arp::Operation::Request => {
             // Is this a request for us?
             if arp_packet.tpa == Ipv4Addr::from_slice(&IpAddress) {
+                // Build the ARP reply.
                 let mac = device.mac_address();
-                let _ = arp::Packet::from_request(&arp_packet, mac);
+                let reply = arp::Packet::from_request(&arp_packet, mac);
+                let mut packet = PacketBuffer::new(1024);
+                packet.serialize(&reply);
+                return Some(packet);
             }
         }
         arp::Operation::Reply => {}
         arp::Operation::Unknown => (),
     }
+    None
 }

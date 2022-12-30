@@ -99,8 +99,11 @@ impl RxDesc {
 #[repr(C)]
 #[derive(Debug, Default)]
 struct TxDesc {
-    addr: u64,
-    options: u64,
+    /// The address of the buffer backing this receive descriptor.
+    addr: PhysicalAddress,
+    /// Padding, as our addresses are only 32b.
+    pad: [u8; 4],
+    options: [u32; 2],
 }
 
 /// A representation of the e1000 family device state.
@@ -264,8 +267,8 @@ impl E1000 {
     unsafe fn init_tx(&mut self) {
         // Allocate the transmission data buffer list and then for each transmission
         // descriptor, allocate a data buffer and write the descriptor.
-        self.rx.resize_with(256, Default::default);
-        for desc in self.rx.iter_mut() {
+        self.tx.resize_with(256, Default::default);
+        for desc in self.tx.iter_mut() {
             let buf = VirtualAddress::new(kalloc() as *mut u8 as u32);
             desc.addr = buf.to_physical_address();
         }
@@ -349,7 +352,27 @@ impl NetworkDevice for E1000 {
     }
 
     fn send(&mut self, buf: PacketBuffer) {
-        // TODO
+        let mut tx_desc = &mut self.tx[self.tx_idx as usize];
+
+        // Write the payload into the transmit buffer.
+        let mut tx_buf = tx_desc.addr.to_virtual_address().value() as *mut u8;
+        unsafe {
+            core::ptr::copy(buf.as_bytes().as_ptr(), tx_buf, buf.len());
+        }
+
+        // Setup the transmit descriptor.
+        let size = buf.len() as u32;
+        let dtyp = 1u32 << 0;
+        let dcmd = (1u32 << 0) | (1u32 << 3) | (1u32 << 5);
+        tx_desc.options[0] = size | (dtyp << 20) | (dcmd << 24);
+
+        self.tx_idx += 1;
+        if (self.tx_idx as usize == self.tx.len()) {
+            self.tx_idx = 0;
+        }
+        unsafe {
+            self.write_register(DeviceRegister::TDT, self.tx_idx);
+        }
     }
 
     /// Read avaliable packets from the device.
@@ -380,7 +403,7 @@ impl NetworkDevice for E1000 {
             self.write_register(DeviceRegister::RDT, self.rx_idx - 1);
         }
 
-        Some(PacketBuffer::new(
+        Some(PacketBuffer::new_from_bytes(
             desc.addr.to_virtual_address().value() as *const u8,
             desc.packet_size(),
         ))
