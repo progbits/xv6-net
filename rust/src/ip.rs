@@ -1,8 +1,4 @@
-/// An IPv4 packet.
-#[derive(Debug)]
-pub struct Ipv4Packet {
-    header: Ipv4Header,
-}
+use crate::net::FromBuffer;
 
 /// An IPv4 address.
 #[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -24,14 +20,14 @@ impl Ipv4Addr {
     }
 }
 
-/// An IPv4 packet header.
+/// An IPv4 packet.
 ///
 /// Represents an IPV4 packet header without options.
 ///
 /// RFC791 Section 3.1
 /// https://tools.ietf.org/html/rfc791
 #[derive(Debug)]
-pub struct Ipv4Header {
+pub struct Ipv4Packet {
     version: u8,
     header_length: u8,
     dscp: u8,
@@ -48,7 +44,7 @@ pub struct Ipv4Header {
     destination_address: Ipv4Addr,
 }
 
-impl Ipv4Header {
+impl Ipv4Packet {
     /// Creates a new Ipv4Header with the specified values.
     ///
     /// Headers are created with their checksum set to 0. Checksums are calculated on write.
@@ -64,8 +60,8 @@ impl Ipv4Header {
         protocol: u8,
         source_address: Ipv4Addr,
         destination_address: Ipv4Addr,
-    ) -> Ipv4Header {
-        Ipv4Header {
+    ) -> Ipv4Packet {
+        Ipv4Packet {
             version: 4,
             header_length: 5,
             dscp: dscp,
@@ -84,8 +80,8 @@ impl Ipv4Header {
     }
 
     /// Creates a new Ipv4Header from a slice of bytes.
-    pub fn from_slice(buf: &[u8]) -> Ipv4Header {
-        Ipv4Header {
+    pub fn from_slice(buf: &[u8]) -> Ipv4Packet {
+        Ipv4Packet {
             version: buf[0] >> 4,
             header_length: buf[0] & 0xf,
             dscp: buf[1] & 0xfc,
@@ -155,7 +151,7 @@ impl Ipv4Header {
         bytes[16..20].copy_from_slice(&self.destination_address.to_bytes());
 
         // Now `bytes` contains the complete header, calculate the checksum.
-        let checksum = &Ipv4Header::calculate_checksum(&bytes);
+        let checksum = &Ipv4Packet::calculate_checksum(&bytes);
         bytes[10..12].copy_from_slice(&checksum.to_be_bytes());
 
         // Write the temporary buffer.
@@ -232,5 +228,15 @@ mod tests {
         assert_eq!(header.header_checksum, 5025);
         assert_eq!(header.source_address, Ipv4Addr::new(10, 0, 0, 1));
         assert_eq!(header.destination_address, Ipv4Addr::new(10, 0, 0, 2));
+    }
+}
+
+impl FromBuffer for Ipv4Packet {
+    fn from_buffer(buf: &[u8]) -> Ipv4Packet {
+        Ipv4Packet::from_slice(&buf)
+    }
+
+    fn size(&self) -> usize {
+        40
     }
 }

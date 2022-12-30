@@ -8,7 +8,7 @@ use core::slice;
 use crate::arp;
 use crate::e1000::E1000;
 use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
-use crate::ip::Ipv4Addr;
+use crate::ip::{Ipv4Addr, Ipv4Packet};
 use crate::kernel::cprint;
 use crate::spinlock::Spinlock;
 
@@ -67,6 +67,14 @@ impl PacketBuffer {
         self.offset += value.size();
         value
     }
+
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.buf.as_slice()
+    }
 }
 
 /// Represents a type that can be parsed from a PacketBuffer.
@@ -121,7 +129,12 @@ pub fn handle_packet(mut buffer: PacketBuffer, device: &Box<dyn NetworkDevice>) 
         cprint(format!("{:x?}\n\x00", ethernet_frame).as_ptr());
     }
     match ethernet_frame.ethertype {
-        Ethertype::IPV4 => (),
+        Ethertype::IPV4 => {
+            let ip_packet = buffer.parse::<Ipv4Packet>();
+            unsafe {
+                cprint(format!("{:x?}\n\x00", ethernet_frame).as_ptr());
+            }
+        }
         Ethertype::ARP => handle_arp(&mut buffer, &device),
         Ethertype::WAKE_ON_LAN => (),
         Ethertype::RARP => (),
