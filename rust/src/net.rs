@@ -1,14 +1,14 @@
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::sync::Arc;
+
 use alloc::vec;
 use alloc::vec::Vec;
-use core::slice;
+
 
 use crate::arp;
 use crate::e1000::E1000;
 use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
-use crate::ip::{Ipv4Addr, Ipv4Packet};
+use crate::ip::{Ipv4Addr};
 use crate::kernel::cprint;
 use crate::spinlock::Spinlock;
 

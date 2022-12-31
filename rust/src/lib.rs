@@ -22,7 +22,7 @@ mod net;
 mod pci;
 
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
+fn panic(_info: &PanicInfo) -> ! {
     unsafe {
         cprint("Panic!\n\x00".as_ptr());
     }

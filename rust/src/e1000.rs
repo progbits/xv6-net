@@ -1,18 +1,15 @@
-///
-/// An interrupt driven E1000 network card driver.
-///
-use alloc::format;
+
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ptr;
-use core::slice;
+
+
 
 use crate::ethernet::EthernetAddress;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
-use crate::net::{handle_packet, NetworkDevice, PacketBuffer};
+use crate::net::{NetworkDevice, PacketBuffer};
 use crate::pci;
-use crate::spinlock::Spinlock;
+
 
 const IRQ_PIC0: u32 = 0xB;
 
@@ -355,7 +352,7 @@ impl NetworkDevice for E1000 {
         let mut tx_desc = &mut self.tx[self.tx_idx as usize];
 
         // Write the payload into the transmit buffer.
-        let mut tx_buf = tx_desc.addr.to_virtual_address().value() as *mut u8;
+        let tx_buf = tx_desc.addr.to_virtual_address().value() as *mut u8;
         unsafe {
             core::ptr::copy(buf.as_bytes().as_ptr(), tx_buf, buf.len());
         }
@@ -367,7 +364,7 @@ impl NetworkDevice for E1000 {
         tx_desc.options[0] = size | (dtyp << 20) | (dcmd << 24);
 
         self.tx_idx += 1;
-        if (self.tx_idx as usize == self.tx.len()) {
+        if self.tx_idx as usize == self.tx.len() {
             self.tx_idx = 0;
         }
         unsafe {

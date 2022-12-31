@@ -44,7 +44,7 @@ pub unsafe fn read_device_id(base_addr: u32) -> u16 {
 }
 
 /// Read the `n`th BAR register.
-pub unsafe fn read_bar(device: u32, n: u8) -> u32 {
+pub unsafe fn read_bar(device: u32, _n: u8) -> u32 {
     let mut result: u32 = 0x0;
     let mut j = 3;
     for i in (16..=19).rev() {

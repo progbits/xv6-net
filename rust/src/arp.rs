@@ -2,7 +2,7 @@ use alloc::collections::BTreeMap;
 
 use crate::ethernet::EthernetAddress;
 use crate::ip::Ipv4Addr;
-use crate::kernel::cprint;
+
 use crate::net::{FromBuffer, ToBuffer};
 use crate::spinlock::Spinlock;
 
