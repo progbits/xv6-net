@@ -1,15 +1,11 @@
-
 use alloc::vec;
 use alloc::vec::Vec;
-
-
 
 use crate::ethernet::EthernetAddress;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::net::{NetworkDevice, PacketBuffer};
 use crate::pci;
-
 
 const IRQ_PIC0: u32 = 0xB;
 
