@@ -20,6 +20,34 @@ impl Ipv4Addr {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum Protocol {
+    ICMP = 0x01,
+    TCP = 0x06,
+    UDP = 0x11,
+    UNKNOWN = 0xFF,
+}
+
+impl Protocol {
+    pub fn from_slice(buf: &[u8]) -> Protocol {
+        match buf[0] {
+            0x01u8 => Protocol::ICMP,
+            0x06u8 => Protocol::TCP,
+            0x11u8 => Protocol::UDP,
+            _ => Protocol::UNKNOWN,
+        }
+    }
+
+    fn as_bytes(&self) -> u8 {
+        match self {
+            Protocol::ICMP => 0x01u8,
+            Protocol::TCP => 0x06u8,
+            Protocol::UDP => 0x11u8,
+            Protocol::UNKNOWN => 0xFFu8,
+        }
+    }
+}
+
 /// An IPv4 packet.
 ///
 /// Represents an IPV4 packet header without options.
@@ -38,7 +66,7 @@ pub struct Ipv4Packet {
     mf: bool,
     fragment_offset: u16,
     time_to_live: u8,
-    protocol: u8,
+    protocol: Protocol,
     header_checksum: u16,
     source_address: Ipv4Addr,
     destination_address: Ipv4Addr,
@@ -57,7 +85,7 @@ impl Ipv4Packet {
         mf: bool,
         fragment_offset: u16,
         time_to_live: u8,
-        protocol: u8,
+        protocol: Protocol,
         source_address: Ipv4Addr,
         destination_address: Ipv4Addr,
     ) -> Ipv4Packet {
@@ -92,11 +120,15 @@ impl Ipv4Packet {
             mf: buf[6] & 0x20 > 0,
             fragment_offset: u16::from_be_bytes([buf[6] & 0x1f, buf[7]]),
             time_to_live: buf[8],
-            protocol: buf[9],
+            protocol: Protocol::from_slice(&buf[9..]),
             header_checksum: u16::from_be_bytes([buf[10], buf[11]]),
             source_address: Ipv4Addr::new(buf[12], buf[13], buf[14], buf[15]),
             destination_address: Ipv4Addr::new(buf[16], buf[17], buf[18], buf[19]),
         }
+    }
+
+    pub fn protocol(&self) -> Protocol {
+        self.protocol
     }
 
     /// Write the header to `buf` with the appropriate checksum.
@@ -141,7 +173,7 @@ impl Ipv4Packet {
 
         // Time to live and protocol.
         bytes[8] = self.time_to_live;
-        bytes[9] = self.protocol;
+        bytes[9] = self.protocol.as_bytes();
 
         // Skip the checksum until we have written the rest of the header.
         bytes[10..12].copy_from_slice(&0u16.to_be_bytes());

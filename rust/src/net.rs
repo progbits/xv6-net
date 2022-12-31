@@ -4,11 +4,10 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 
-
 use crate::arp;
 use crate::e1000::E1000;
 use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
-use crate::ip::{Ipv4Addr};
+use crate::ip::{Ipv4Addr, Ipv4Packet, Protocol};
 use crate::kernel::cprint;
 use crate::spinlock::Spinlock;
 
@@ -87,9 +86,6 @@ impl PacketBuffer {
         self.written = true;
         let start = self.buf.len() - self.offset;
         let end = start + value.size();
-        unsafe {
-            cprint(format!("writing to buffer {}, {}\n\x00", start, end).as_ptr());
-        }
         value.to_buffer(&mut self.buf[start..end]);
     }
 
@@ -99,9 +95,6 @@ impl PacketBuffer {
 
     pub fn as_bytes(&self) -> &[u8] {
         if self.written {
-            unsafe {
-                cprint(format!("offset {}\n\x00", self.offset).as_ptr());
-            }
             &self.buf[self.buf.len() - self.offset..]
         } else {
             self.buf.as_slice()
@@ -165,16 +158,20 @@ unsafe extern "C" fn netintr() {
 /// Main entrypoint into the kernel network stack.
 ///
 /// Handles a single, ethernet frame encapsulated packet. Potentially writes packets back to the network device.
-///
-/// TODO: A better abstraction for serializing packets.
 pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) {
     let ethernet_frame = buffer.parse::<EthernetFrame>();
-    unsafe {
-        cprint(format!("{:x?}\n\x00", ethernet_frame).as_ptr());
-    }
-
     match ethernet_frame.ethertype {
-        Ethertype::IPV4 => (),
+        Ethertype::IPV4 => {
+            let ip_packet = buffer.parse::<Ipv4Packet>();
+            unsafe {
+                match ip_packet.protocol() {
+                    Protocol::ICMP => cprint("ICMP/IP packet\n\x00".as_ptr()),
+                    Protocol::UDP => cprint("UDP/IP packet\n\x00".as_ptr()),
+                    Protocol::TCP => cprint("TCP/IP packet\n\x00".as_ptr()),
+                    Protocol::UNKNOWN => cprint("UNKNOWN/IP Packet\n\x00".as_ptr()),
+                }
+            }
+        }
         Ethertype::ARP => match handle_arp(&mut buffer, &device) {
             Some(mut x) => {
                 // Encapsulate the ARP response.
