@@ -1,4 +1,4 @@
-use crate::net::FromBuffer;
+use crate::net::{FromBuffer, ToBuffer};
 
 /// An IPv4 address.
 #[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -108,8 +108,8 @@ impl Ipv4Packet {
     }
 
     /// Creates a new Ipv4Header from a slice of bytes.
-    pub fn from_slice(buf: &[u8]) -> Ipv4Packet {
-        Ipv4Packet {
+    pub fn from_slice(buf: &[u8]) -> Result<Ipv4Packet, ()> {
+        let packet = Ipv4Packet {
             version: buf[0] >> 4,
             header_length: buf[0] & 0xf,
             dscp: buf[1] & 0xfc,
@@ -124,11 +124,21 @@ impl Ipv4Packet {
             header_checksum: u16::from_be_bytes([buf[10], buf[11]]),
             source_address: Ipv4Addr::new(buf[12], buf[13], buf[14], buf[15]),
             destination_address: Ipv4Addr::new(buf[16], buf[17], buf[18], buf[19]),
+        };
+
+        // Reject any packets with unexpected header lengths.
+        if packet.header_length != 5 {
+            return Err(());
         }
+        return Ok(packet);
     }
 
     pub fn protocol(&self) -> Protocol {
         self.protocol
+    }
+
+    pub fn source(&self) -> Ipv4Addr {
+        self.source_address
     }
 
     /// Write the header to `buf` with the appropriate checksum.
@@ -207,6 +217,26 @@ impl Ipv4Packet {
     }
 }
 
+impl FromBuffer for Ipv4Packet {
+    fn from_buffer(buf: &[u8]) -> Result<Ipv4Packet, ()> {
+        Ipv4Packet::from_slice(&buf)
+    }
+
+    fn size(&self) -> usize {
+        20
+    }
+}
+
+impl ToBuffer for Ipv4Packet {
+    fn to_buffer(&self, buf: &mut [u8]) {
+        self.write(buf)
+    }
+
+    fn size(&self) -> usize {
+        20
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,15 +290,5 @@ mod tests {
         assert_eq!(header.header_checksum, 5025);
         assert_eq!(header.source_address, Ipv4Addr::new(10, 0, 0, 1));
         assert_eq!(header.destination_address, Ipv4Addr::new(10, 0, 0, 2));
-    }
-}
-
-impl FromBuffer for Ipv4Packet {
-    fn from_buffer(buf: &[u8]) -> Ipv4Packet {
-        Ipv4Packet::from_slice(&buf)
-    }
-
-    fn size(&self) -> usize {
-        40
     }
 }

@@ -16,6 +16,7 @@ mod spinlock;
 mod arp;
 mod e1000;
 mod ethernet;
+mod icmp;
 mod ip;
 mod mm;
 mod net;

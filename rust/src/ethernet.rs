@@ -89,8 +89,8 @@ impl EthernetFrame {
 }
 
 impl FromBuffer for EthernetFrame {
-    fn from_buffer(buf: &[u8]) -> EthernetFrame {
-        EthernetFrame::from_slice(&buf)
+    fn from_buffer(buf: &[u8]) -> Result<EthernetFrame, ()> {
+        Ok(EthernetFrame::from_slice(&buf))
     }
 
     fn size(&self) -> usize {

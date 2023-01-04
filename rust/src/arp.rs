@@ -142,8 +142,8 @@ impl Packet {
 }
 
 impl FromBuffer for Packet {
-    fn from_buffer(buf: &[u8]) -> Packet {
-        Packet::from_slice(&buf)
+    fn from_buffer(buf: &[u8]) -> Result<Packet, ()> {
+        Ok(Packet::from_slice(&buf))
     }
 
     fn size(&self) -> usize {

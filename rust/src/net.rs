@@ -7,12 +7,16 @@ use alloc::vec::Vec;
 use crate::arp;
 use crate::e1000::E1000;
 use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
+use crate::icmp::IcmpPacket;
+use crate::icmp::{IcmpEchoMessage, Type};
 use crate::ip::{Ipv4Addr, Ipv4Packet, Protocol};
 use crate::kernel::cprint;
 use crate::spinlock::Spinlock;
 
+static PACKET_BUFFER_SIZE: usize = 1024;
+
 /// We have a single, static IP address (10.0.0.2) for now.
-static IpAddress: [u8; 4] = [0x0A, 0x00, 0x00, 0x02];
+static IP_ADDRESS: [u8; 4] = [0x0A, 0x00, 0x00, 0x02];
 
 /// Current assumptions:
 ///		- We only have one network device attached to the system
@@ -49,6 +53,7 @@ pub struct PacketBuffer {
 }
 
 impl PacketBuffer {
+    /// Create a new buffer with the specified size.
     pub fn new(size: usize) -> PacketBuffer {
         PacketBuffer {
             buf: vec![0u8; size],
@@ -58,6 +63,7 @@ impl PacketBuffer {
         }
     }
 
+    /// Create a new buffer from the data provided.
     pub fn new_from_bytes(data: *const u8, size: usize) -> PacketBuffer {
         let mut packet_buffer = PacketBuffer {
             buf: vec![0u8; size],
@@ -73,10 +79,13 @@ impl PacketBuffer {
 
     /// Parse a new packet from the buffer.
     /// TODO: Zero-copy?
-    pub fn parse<T: FromBuffer>(&mut self) -> T {
-        let value = T::from_buffer(&self.buf[self.offset..]);
+    pub fn parse<T: FromBuffer>(&mut self) -> Result<T, ()> {
+        let value = match T::from_buffer(&self.buf[self.offset..]) {
+            Ok(x) => x,
+            Err(_) => return Err(()),
+        };
         self.offset += value.size();
-        value
+        Ok(value)
     }
 
     /// Serialize a new packet to the buffer.
@@ -89,15 +98,17 @@ impl PacketBuffer {
         value.to_buffer(&mut self.buf[start..end]);
     }
 
+    /// Return the size of the buffer.
     pub fn len(&self) -> usize {
         self.offset
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    /// Return a pointer to the underlying buffer.
+    pub fn as_ptr(&self) -> *const u8 {
         if self.written {
-            &self.buf[self.buf.len() - self.offset..]
+            self.buf[self.buf.len() - self.offset..].as_ptr()
         } else {
-            self.buf.as_slice()
+            self.buf[..self.offset].as_ptr()
         }
     }
 }
@@ -105,7 +116,9 @@ impl PacketBuffer {
 /// Represents a type that can be parsed from a PacketBuffer.
 pub trait FromBuffer {
     /// Parse a new instance from a slice of bytes.
-    fn from_buffer(buf: &[u8]) -> Self;
+    fn from_buffer(buf: &[u8]) -> Result<Self, ()>
+    where
+        Self: Sized;
 
     /// The size of the parsed structure, not including any encapsulated data.
     fn size(&self) -> usize;
@@ -159,13 +172,53 @@ unsafe extern "C" fn netintr() {
 ///
 /// Handles a single, ethernet frame encapsulated packet. Potentially writes packets back to the network device.
 pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) {
-    let ethernet_frame = buffer.parse::<EthernetFrame>();
+    let ethernet_frame = match buffer.parse::<EthernetFrame>() {
+        Ok(x) => x,
+        Err(_) => unsafe {
+            cprint("Error parsing ethernet frame\n\x00".as_ptr());
+            return;
+        },
+    };
+
     match ethernet_frame.ethertype {
         Ethertype::IPV4 => {
-            let ip_packet = buffer.parse::<Ipv4Packet>();
+            let ip_packet = match buffer.parse::<Ipv4Packet>() {
+                Ok(x) => x,
+                Err(_) => unsafe {
+                    cprint("Unexpected IPV4 header size\n\x00".as_ptr());
+                    return;
+                },
+            };
+
             unsafe {
                 match ip_packet.protocol() {
-                    Protocol::ICMP => cprint("ICMP/IP packet\n\x00".as_ptr()),
+                    Protocol::ICMP => match handle_icmp(&mut buffer, &device) {
+                        Some(mut x) => {
+                            let ip_packet = Ipv4Packet::new(
+                                0,
+                                0,
+                                (x.len() + 20) as u16,
+                                0,
+                                true,
+                                false,
+                                0,
+                                64,
+                                Protocol::ICMP,
+                                Ipv4Addr::from_slice(&IP_ADDRESS),
+                                ip_packet.source(),
+                            );
+                            x.serialize(&ip_packet);
+
+                            let ethernet_frame = EthernetFrame::new(
+                                ethernet_frame.source,
+                                device.mac_address(),
+                                Ethertype::IPV4,
+                            );
+                            x.serialize(&ethernet_frame);
+                            device.send(x);
+                        }
+                        None => (),
+                    },
                     Protocol::UDP => cprint("UDP/IP packet\n\x00".as_ptr()),
                     Protocol::TCP => cprint("TCP/IP packet\n\x00".as_ptr()),
                     Protocol::UNKNOWN => cprint("UNKNOWN/IP Packet\n\x00".as_ptr()),
@@ -190,6 +243,33 @@ pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevic
     }
 }
 
+/// Handle an ICMP packet.
+pub fn handle_icmp(
+    buffer: &mut PacketBuffer,
+    device: &Box<dyn NetworkDevice>,
+) -> Option<PacketBuffer> {
+    let icmp_packet = match buffer.parse::<IcmpPacket>() {
+        Ok(x) => x,
+        Err(_) => unsafe {
+            cprint("Error parsing ICMP packet\n\x00".as_ptr());
+            return None;
+        },
+    };
+
+    match icmp_packet {
+        IcmpPacket::EchoMessage(x) => {
+            if x.r#type == Type::EchoRequest {
+                let reply = IcmpPacket::EchoMessage(IcmpEchoMessage::from_request(x));
+                let mut packet = PacketBuffer::new(PACKET_BUFFER_SIZE);
+                packet.serialize(&reply);
+                return Some(packet);
+            }
+        }
+        _ => panic!(),
+    }
+    None
+}
+
 /// Handle an ARP packet.
 ///
 /// Handle an ARP packet, optionally returning any response that needs to be serialized to the network.
@@ -197,16 +277,22 @@ pub fn handle_arp(
     buffer: &mut PacketBuffer,
     device: &Box<dyn NetworkDevice>,
 ) -> Option<PacketBuffer> {
-    let arp_packet = buffer.parse::<arp::Packet>();
+    let arp_packet = match buffer.parse::<arp::Packet>() {
+        Ok(x) => x,
+        Err(_) => unsafe {
+            cprint("Error parsing ARP packet\n\x00".as_ptr());
+            return None;
+        },
+    };
 
     match arp_packet.oper {
         arp::Operation::Request => {
             // Is this a request for us?
-            if arp_packet.tpa == Ipv4Addr::from_slice(&IpAddress) {
+            if arp_packet.tpa == Ipv4Addr::from_slice(&IP_ADDRESS) {
                 // Build the ARP reply.
                 let mac = device.mac_address();
                 let reply = arp::Packet::from_request(&arp_packet, mac);
-                let mut packet = PacketBuffer::new(1024);
+                let mut packet = PacketBuffer::new(PACKET_BUFFER_SIZE);
                 packet.serialize(&reply);
                 return Some(packet);
             }

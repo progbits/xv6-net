@@ -68,18 +68,16 @@ enum InterruptMask {
 struct RxDesc {
     /// The address of the buffer backing this receive descriptor.
     addr: PhysicalAddress,
-    /// Padding, as our addresses are only 32b.
-    pad: [u8; 4],
-    length: [u8; 2],
-    checksum: [u8; 2],
+    length: u16,
+    checksum: u16,
     status: u8,
     errors: u8,
-    special: [u8; 2],
+    special: u16,
 }
 
 impl RxDesc {
-    fn packet_size(&self) -> usize {
-        u16::from_le_bytes(self.length) as usize
+    fn packet_size(&self) -> u16 {
+        self.length
     }
 
     /// Is the ed of packet (EOP) flag set?
@@ -94,8 +92,6 @@ impl RxDesc {
 struct TxDesc {
     /// The address of the buffer backing this receive descriptor.
     addr: PhysicalAddress,
-    /// Padding, as our addresses are only 32b.
-    pad: [u8; 4],
     options: [u32; 2],
 }
 
@@ -222,13 +218,15 @@ impl E1000 {
         // Allocate a recieve buffer for each of the descriptors.
         self.rx.resize_with(256, Default::default);
         for desc in self.rx.iter_mut() {
-            let buf = VirtualAddress::new(kalloc() as *mut u8 as u32);
-            desc.addr = buf.to_physical_address();
+            let buf = kalloc() as *mut u8;
+            desc.addr = PhysicalAddress::from_virtual(buf as u64);
         }
 
         // Setup the receive descriptor buffer registers.
-        let rx_buf = VirtualAddress::new(self.rx.as_ptr() as u32);
-        self.write_register(DeviceRegister::RDBAL, rx_buf.to_physical_address().value());
+        self.write_register(
+            DeviceRegister::RDBAL,
+            PhysicalAddress::from_virtual(self.rx.as_ptr() as u64).0 as u32,
+        );
         self.write_register(DeviceRegister::RDBAH, 0x0);
         self.write_register(DeviceRegister::RDLEN, PAGE_SIZE as u32);
         self.write_register(DeviceRegister::RDH, 0);
@@ -262,14 +260,14 @@ impl E1000 {
         // descriptor, allocate a data buffer and write the descriptor.
         self.tx.resize_with(256, Default::default);
         for desc in self.tx.iter_mut() {
-            let buf = VirtualAddress::new(kalloc() as *mut u8 as u32);
-            desc.addr = buf.to_physical_address();
+            let buf = kalloc() as *mut u8;
+            desc.addr = PhysicalAddress::from_virtual(buf as u64);
         }
         self.tx_idx = 1;
 
         // Setup the transmit descriptor buffer registers.
-        let tx_buf = VirtualAddress::new(self.tx.as_ptr() as u32);
-        self.write_register(DeviceRegister::TDBAL, tx_buf.to_physical_address().value());
+        let tx_buf = VirtualAddress::new(self.tx.as_ptr() as u64);
+        self.write_register(DeviceRegister::TDBAL, tx_buf.to_physical().0 as u32);
         self.write_register(DeviceRegister::TDBAH, 0x0);
         self.write_register(DeviceRegister::TDLEN, PAGE_SIZE as u32);
         self.write_register(DeviceRegister::TDH, 0);
@@ -321,7 +319,7 @@ impl NetworkDevice for E1000 {
         self.mac_addr.unwrap()
     }
 
-    /// Clear interrupt register.
+    /// Clear the current state of the interrupt register.
     fn clear_interrupts(&mut self) {
         // Read the interrupt register and dispatch to the correct handler.
         unsafe {
@@ -344,13 +342,14 @@ impl NetworkDevice for E1000 {
         }
     }
 
+    /// Send the contents of a PacketBuffer over the wire.
     fn send(&mut self, buf: PacketBuffer) {
         let mut tx_desc = &mut self.tx[self.tx_idx as usize];
 
         // Write the payload into the transmit buffer.
-        let tx_buf = tx_desc.addr.to_virtual_address().value() as *mut u8;
+        let tx_buf = tx_desc.addr.to_virtual().0 as *mut u8;
         unsafe {
-            core::ptr::copy(buf.as_bytes().as_ptr(), tx_buf, buf.len());
+            core::ptr::copy(buf.as_ptr(), tx_buf, buf.len());
         }
 
         // Setup the transmit descriptor.
@@ -369,10 +368,7 @@ impl NetworkDevice for E1000 {
     }
 
     /// Read avaliable packets from the device.
-    ///
-    /// TODO:
-    /// 	- Handle fragmented packets.
-    /// 	- Loan out PacketBuffers
+    /// TODO: Loan PacketBuffer?
     fn recv(&mut self) -> Option<PacketBuffer> {
         unsafe {
             let head = self.read_register(DeviceRegister::RDH);
@@ -384,7 +380,7 @@ impl NetworkDevice for E1000 {
 
         let desc = &self.rx[self.rx_idx as usize];
         if !desc.end_of_packet() {
-            panic!();
+            panic!(); // TODO: Handle?
         }
 
         self.rx_idx += 1;
@@ -396,9 +392,10 @@ impl NetworkDevice for E1000 {
             self.write_register(DeviceRegister::RDT, self.rx_idx - 1);
         }
 
+        // 4 bytes removed for ethernet FCS
         Some(PacketBuffer::new_from_bytes(
-            desc.addr.to_virtual_address().value() as *const u8,
-            desc.packet_size(),
+            desc.addr.to_virtual().0 as *const u8,
+            (desc.packet_size() - 4) as usize,
         ))
     }
 }
