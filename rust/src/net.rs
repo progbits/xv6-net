@@ -12,6 +12,7 @@ use crate::icmp::{IcmpEchoMessage, Type};
 use crate::ip::{Ipv4Addr, Ipv4Packet, Protocol};
 use crate::kernel::cprint;
 use crate::spinlock::Spinlock;
+use crate::udp::UdpPacket;
 
 static PACKET_BUFFER_SIZE: usize = 1024;
 
@@ -219,7 +220,16 @@ pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevic
                         }
                         None => (),
                     },
-                    Protocol::UDP => cprint("UDP/IP packet\n\x00".as_ptr()),
+                    Protocol::UDP => {
+                        let udp_packet = match buffer.parse::<UdpPacket>() {
+                            Ok(x) => x,
+                            Err(_) => unsafe {
+                                cprint("Error parsing udp packet\n\x00".as_ptr());
+                                return;
+                            },
+                        };
+                        cprint(format!("udp packet {:x?}\n\x00", udp_packet).as_ptr())
+                    }
                     Protocol::TCP => cprint("TCP/IP packet\n\x00".as_ptr()),
                     Protocol::UNKNOWN => cprint("UNKNOWN/IP Packet\n\x00".as_ptr()),
                 }

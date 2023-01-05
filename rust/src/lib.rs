@@ -21,6 +21,7 @@ mod ip;
 mod mm;
 mod net;
 mod pci;
+mod udp;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
