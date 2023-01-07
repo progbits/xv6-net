@@ -3,7 +3,6 @@
 ///
 /// The facilities provided here are currently fairly minimal until we have
 /// all of the memory management code written in Rust.
-///
 
 pub const PAGE_SIZE: usize = 1 << 12;
 

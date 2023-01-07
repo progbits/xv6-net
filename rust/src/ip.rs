@@ -75,7 +75,8 @@ pub struct Ipv4Packet {
 impl Ipv4Packet {
     /// Creates a new Ipv4Header with the specified values.
     ///
-    /// Headers are created with their checksum set to 0. Checksums are calculated on write.
+    /// Headers are created with their checksum set to 0. Checksums are
+    /// calculated on write.
     pub fn new(
         dscp: u8,
         ecn: u8,
@@ -143,7 +144,8 @@ impl Ipv4Packet {
 
     /// Write the header to `buf` with the appropriate checksum.
     ///
-    /// The header is written to a stack allocated buffer, the checksum calculated, then the header is written to `buf`.
+    /// The header is written to a stack allocated buffer, the checksum
+    /// calculated, then the header is written to `buf`.
     pub fn write(&self, buf: &mut [u8]) {
         // Temporary write buffer to make calculating the checksum easier.
         let mut bytes = [0u8; 20];

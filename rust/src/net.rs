@@ -20,8 +20,9 @@ static PACKET_BUFFER_SIZE: usize = 1024;
 static IP_ADDRESS: [u8; 4] = [0x0A, 0x00, 0x00, 0x02];
 
 /// Current assumptions:
-///		- We only have one network device attached to the system
-///		- Some driver initialization routine called on system start-up will register the driver with the network stack.
+/// 		- We only have one network device attached to the system
+/// 		- Some driver initialization routine called on system start-up will
+///     register the driver with the network stack.
 pub static NETWORK_DEVICE: Spinlock<Option<Box<dyn NetworkDevice>>> = Spinlock::new(None);
 
 /// Represents a device that can send and receive packets.
@@ -136,7 +137,9 @@ pub trait ToBuffer {
 
 /// Initialize the network stack.
 ///
-/// Called on system start-up to initialize the kernel network stack. Routine searches for a compatible E1000 family network device and registers that device in the `NETWORK_DEVICE` global.
+/// Called on system start-up to initialize the kernel network stack. Routine
+/// searches for a compatible E1000 family network device and registers that
+/// device in the `NETWORK_DEVICE` global.
 #[no_mangle]
 unsafe extern "C" fn rustnetinit() {
     cprint("Configuring E1000 family device.\n\x00".as_ptr());
@@ -171,7 +174,8 @@ unsafe extern "C" fn netintr() {
 
 /// Main entrypoint into the kernel network stack.
 ///
-/// Handles a single, ethernet frame encapsulated packet. Potentially writes packets back to the network device.
+/// Handles a single, ethernet frame encapsulated packet. Potentially writes
+/// packets back to the network device.
 pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) {
     let ethernet_frame = match buffer.parse::<EthernetFrame>() {
         Ok(x) => x,
@@ -282,7 +286,8 @@ pub fn handle_icmp(
 
 /// Handle an ARP packet.
 ///
-/// Handle an ARP packet, optionally returning any response that needs to be serialized to the network.
+/// Handle an ARP packet, optionally returning any response that needs to be
+/// serialized to the network.
 pub fn handle_arp(
     buffer: &mut PacketBuffer,
     device: &Box<dyn NetworkDevice>,

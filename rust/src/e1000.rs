@@ -110,7 +110,8 @@ impl E1000 {
     ///
     /// By the end of this method, if successful, we will have:
     ///
-    ///  - Numberated the PCI bus and located an attached Intel 8254x family ethernet card
+    ///  - Numberated the PCI bus and located an attached Intel 8254x family
+    ///    ethernet card
     ///  - Stored the MMIO base address
     ///  - Stored the EEPROM based MAC address
     ///  - Configured the card as a bus master
