@@ -20,6 +20,12 @@ impl Ipv4Addr {
     }
 }
 
+impl From<u32> for Ipv4Addr {
+    fn from(value: u32) -> Ipv4Addr {
+        Ipv4Addr(value.to_be_bytes())
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum Protocol {
     ICMP = 0x01,

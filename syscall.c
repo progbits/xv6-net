@@ -72,8 +72,11 @@ int argstr(int n, char **pp) {
   return fetchstr(addr, pp);
 }
 
+extern int sys_accept(void);
+extern int sys_bind(void);
 extern int sys_chdir(void);
 extern int sys_close(void);
+extern int sys_connect(void);
 extern int sys_dup(void);
 extern int sys_exec(void);
 extern int sys_exit(void);
@@ -82,6 +85,7 @@ extern int sys_fstat(void);
 extern int sys_getpid(void);
 extern int sys_kill(void);
 extern int sys_link(void);
+extern int sys_listen(void);
 extern int sys_mkdir(void);
 extern int sys_mknod(void);
 extern int sys_netclose(void);
@@ -91,8 +95,12 @@ extern int sys_netwrite(void);
 extern int sys_open(void);
 extern int sys_pipe(void);
 extern int sys_read(void);
+extern int sys_recv(void);
 extern int sys_sbrk(void);
+extern int sys_send(void);
+extern int sys_shutdown(void);
 extern int sys_sleep(void);
+extern int sys_socket(void);
 extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
@@ -111,7 +119,11 @@ static int (*syscalls[])(void) = {
     [SYS_link] sys_link,         [SYS_mkdir] sys_mkdir,
     [SYS_close] sys_close,       [SYS_netopen] sys_netopen,
     [SYS_netclose] sys_netclose, [SYS_netread] sys_netread,
-    [SYS_netwrite] sys_netwrite};
+    [SYS_netwrite] sys_netwrite, [SYS_socket] sys_socket,
+    [SYS_bind] sys_bind,         [SYS_listen] sys_listen,[SYS_connect] sys_connect,
+    [SYS_accept] sys_accept,     [SYS_send] sys_send,
+    [SYS_recv] sys_recv,         [SYS_shutdown] sys_shutdown,
+};
 
 void syscall(void) {
   int num;

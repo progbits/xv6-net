@@ -14,6 +14,7 @@ mod kernel;
 mod spinlock;
 
 mod arp;
+mod cpu;
 mod e1000;
 mod ethernet;
 mod icmp;

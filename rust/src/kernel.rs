@@ -1,4 +1,4 @@
-use core::ffi::{c_uchar, c_void};
+use core::ffi::{c_int, c_uchar, c_void};
 
 // Bindings to the existing xv6 kernel library.
 extern "C" {
@@ -11,4 +11,8 @@ extern "C" {
     // kalloc.c
     pub fn kalloc() -> *mut c_void;
     pub fn kfree(ptr: *const c_void);
+
+    // syscall.c
+    pub fn argint(n: c_int, ip: *mut c_int);
+    pub fn argptr(n: c_int, pp: *const *mut c_void, size: c_int);
 }

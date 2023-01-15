@@ -2,6 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::ethernet::EthernetAddress;
+use crate::ip::Ipv4Addr;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::net::{NetworkDevice, PacketBuffer};
@@ -97,11 +98,25 @@ struct TxDesc {
 
 /// A representation of the e1000 family device state.
 pub struct E1000 {
+    /// Base address of the memory mapped IO space of the device.
     mmio_base: u32,
-    mac_addr: Option<EthernetAddress>,
+
+    /// The hardware (MAC) address of the device.
+    hardware_address: Option<EthernetAddress>,
+
+    /// The protocol (IP) address of the device.
+    protocol_address: Option<Ipv4Addr>,
+
+    /// Active receive descriptors.
     rx: Vec<RxDesc>,
+
+    /// The next receive descriptor to be read from.
     rx_idx: u32,
+
+    /// Active transmit descriptors.
     tx: Vec<TxDesc>,
+
+    /// The next transmit descriptor to be written to.
     tx_idx: u32,
 }
 
@@ -124,7 +139,8 @@ impl E1000 {
     pub unsafe fn new() -> Option<E1000> {
         let mut e1000 = E1000 {
             mmio_base: 0x0,
-            mac_addr: None,
+            hardware_address: None,
+            protocol_address: None,
             rx: vec![],
             rx_idx: 0,
             tx: vec![],
@@ -158,7 +174,7 @@ impl E1000 {
         // Read the MAC address.
         // TODO: Lock EEPROM.
         let eerd_ptr = e1000.mmio_base + DeviceRegister::EERD as u32;
-        let mut mac_addr = [0u8; 6];
+        let mut hardware_addres = [0u8; 6];
         for i in 0..3 {
             core::ptr::write_volatile(eerd_ptr as *mut u32, 0x00000001 | i << 8);
             let mut data = core::ptr::read_volatile(eerd_ptr as *const u32);
@@ -167,10 +183,10 @@ impl E1000 {
             }
             data >>= 16;
 
-            mac_addr[(i * 2) as usize] = (data & 0xFF as u32) as u8;
-            mac_addr[(i * 2 + 1) as usize] = (data >> 8 & 0xFF as u32) as u8;
+            hardware_addres[(i * 2) as usize] = (data & 0xFF as u32) as u8;
+            hardware_addres[(i * 2 + 1) as usize] = (data >> 8 & 0xFF as u32) as u8;
         }
-        e1000.mac_addr = Some(EthernetAddress::from_slice(&mac_addr));
+        e1000.hardware_address = Some(EthernetAddress::from_slice(&hardware_addres));
 
         // Setup receive functionality.
         e1000.init_rx();
@@ -201,7 +217,7 @@ impl E1000 {
     unsafe fn init_rx(&mut self) {
         // Write the MAC addres into the RAL and RAH registers.
         // Pad the MAC address to 8 bytes.
-        match &self.mac_addr {
+        match &self.hardware_address {
             Some(x) => {
                 let mut mac_padded: [u8; 8] = [0; 8];
                 mac_padded[..6].clone_from_slice(&x.as_bytes());
@@ -309,15 +325,33 @@ impl E1000 {
     }
 
     /// Return the hardware adddress of the network device.
-    fn mac_address(&self) -> Option<EthernetAddress> {
-        self.mac_addr.clone()
+    fn hardware_address(&self) -> Option<EthernetAddress> {
+        self.hardware_address.clone()
+    }
+
+    /// Return the protocol adddress of the network device.
+    fn protocol_address(&self) -> Option<Ipv4Addr> {
+        self.protocol_address.clone()
+    }
+
+    /// Set the protocol adddress of the network device.
+    fn set_protocol_address(&mut self, protocol_address: Ipv4Addr) {
+        self.protocol_address = Some(protocol_address);
     }
 }
 
 /// Implement the common network interface.
 impl NetworkDevice for E1000 {
-    fn mac_address(&self) -> EthernetAddress {
-        self.mac_addr.unwrap()
+    fn hardware_address(&self) -> EthernetAddress {
+        self.hardware_address.unwrap()
+    }
+
+    fn protocol_address(&self) -> Ipv4Addr {
+        self.protocol_address.unwrap()
+    }
+
+    fn set_protocol_address(&mut self, protocol_address: Ipv4Addr) {
+        self.protocol_address = Some(protocol_address);
     }
 
     /// Clear the current state of the interrupt register.

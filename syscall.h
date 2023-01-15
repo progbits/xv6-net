@@ -24,3 +24,11 @@
 #define SYS_netclose 23
 #define SYS_netread 24
 #define SYS_netwrite 25
+#define SYS_socket 26
+#define SYS_bind 27
+#define SYS_connect 28
+#define SYS_listen 29
+#define SYS_accept 30
+#define SYS_send 31
+#define SYS_recv 32
+#define SYS_shutdown 33

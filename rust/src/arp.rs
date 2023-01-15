@@ -1,29 +1,64 @@
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::format;
 
-use crate::ethernet::EthernetAddress;
+use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
 use crate::ip::Ipv4Addr;
 
-use crate::net::{FromBuffer, ToBuffer};
+use crate::net::{FromBuffer, NetworkDevice, PacketBuffer, ToBuffer, PACKET_BUFFER_SIZE};
 use crate::spinlock::Spinlock;
 
-/// ARP Cache
-static CACHE: Spinlock<Cache> = Spinlock::<Cache>::new(Cache(BTreeMap::new()));
+/// ARP Cache.
+static ARP_CACHE: Spinlock<ArpCache> = Spinlock::<ArpCache>::new(ArpCache(BTreeMap::new()));
 
-/// An ARP cache entry.
-struct CacheEntry {
-    ethernet_addres: EthernetAddress,
-    ip_address: Ipv4Addr,
-}
+pub struct ArpCache(BTreeMap<Ipv4Addr, EthernetAddress>);
 
-struct Cache(BTreeMap<EthernetAddress, CacheEntry>);
+impl ArpCache {
+    /// Return the hardware address, if it exists in the cache.
+    pub fn hardware_address(protocol_address: &Ipv4Addr) -> Option<EthernetAddress> {
+        let cache = ARP_CACHE.lock();
+        let result = cache.0.get(protocol_address).copied();
+        result
+    }
 
-impl Cache {
-    pub fn address(ethernet_address: &EthernetAddress) -> Option<Ipv4Addr> {
-        let cache = CACHE.lock();
-        match cache.0.get(ethernet_address) {
-            Some(x) => Some(x.ip_address.clone()),
-            None => None,
+    /// Add a new entry from an ARP reply.
+    pub fn reply(arp_packet: ArpPacket) {
+        match arp_packet.oper {
+            Operation::Request | Operation::Unknown => return,
+            Operation::Reply => (),
         }
+
+        let mut cache = ARP_CACHE.lock();
+        cache.0.insert(arp_packet.spa, arp_packet.sha);
+    }
+
+    /// Send a request to resolve a hardware address.
+    pub fn resolve(protocol_address: &Ipv4Addr, device: &mut Box<dyn NetworkDevice>) {
+        let mut packet_buffer = PacketBuffer::new(PACKET_BUFFER_SIZE);
+
+        let broadcast_hardware_address =
+            EthernetAddress::from_slice(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let arp_request = ArpPacket {
+            htype: HardwareType::Ethernet,
+            ptype: ProtocolType::Ipv4,
+            hlen: 6,
+            plen: 4,
+            oper: Operation::Request,
+            sha: device.hardware_address(),
+            spa: device.protocol_address(),
+            tha: broadcast_hardware_address,
+            tpa: *protocol_address,
+        };
+        packet_buffer.serialize(&arp_request);
+
+        let ethernet_frame = EthernetFrame::new(
+            broadcast_hardware_address,
+            device.hardware_address(),
+            Ethertype::ARP,
+        );
+        packet_buffer.serialize(&ethernet_frame);
+
+        device.send(packet_buffer);
     }
 }
 
@@ -98,7 +133,7 @@ impl Operation {
 
 /// Represents an ARP packet.
 #[derive(Debug)]
-pub struct Packet {
+pub struct ArpPacket {
     pub htype: HardwareType,
     pub ptype: ProtocolType,
     pub hlen: u8,
@@ -110,9 +145,9 @@ pub struct Packet {
     pub tpa: Ipv4Addr,
 }
 
-impl Packet {
-    pub fn from_slice(buf: &[u8]) -> Packet {
-        Packet {
+impl ArpPacket {
+    pub fn from_slice(buf: &[u8]) -> ArpPacket {
+        ArpPacket {
             htype: HardwareType::from_slice(&buf),
             ptype: ProtocolType::from_slice(&buf[2..]),
             hlen: buf[4],
@@ -126,8 +161,8 @@ impl Packet {
     }
 
     /// Create a new ARP response from a request.
-    pub fn from_request(request: &Packet, mac_address: EthernetAddress) -> Packet {
-        Packet {
+    pub fn from_request(request: &ArpPacket, mac_address: EthernetAddress) -> ArpPacket {
+        ArpPacket {
             htype: HardwareType::Ethernet,
             ptype: ProtocolType::Ipv4,
             hlen: 0x06,
@@ -141,9 +176,9 @@ impl Packet {
     }
 }
 
-impl FromBuffer for Packet {
-    fn from_buffer(buf: &[u8]) -> Result<Packet, ()> {
-        Ok(Packet::from_slice(&buf))
+impl FromBuffer for ArpPacket {
+    fn from_buffer(buf: &[u8]) -> Result<ArpPacket, ()> {
+        Ok(ArpPacket::from_slice(&buf))
     }
 
     fn size(&self) -> usize {
@@ -151,7 +186,7 @@ impl FromBuffer for Packet {
     }
 }
 
-impl ToBuffer for Packet {
+impl ToBuffer for ArpPacket {
     fn to_buffer(&self, buf: &mut [u8]) {
         let mut tmp = [0u8; 28];
         tmp[0..2].copy_from_slice(&self.htype.as_bytes());

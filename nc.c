@@ -31,6 +31,17 @@ uint parse_addr(char *addr) {
 // A simple `nc` like program. As we have a UDP only network stack, the `-l`
 // flag is somewhat implicit.
 int main(int argc, char *argv[]) {
+  int fd = socket(0);
+  bind();
+  connect(fd, 0x0A000001, 5432);
+  listen();
+  accept();
+  send(0, "hello, world\n", 14);
+  recv();
+  shutdown();
+
+  printf(2, "socketfd %d\n", fd);
+
   if (argc < 3) {
     printf(2, "usage: nc [destination] [port]\n");
     exit();
