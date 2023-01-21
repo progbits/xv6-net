@@ -51,18 +51,18 @@ address of `10.0.0.2`.
 The project can be built with `make`:
 
 ```shell
-make
+$ make
 ```
 
 Once built, the `xv6` operating system can be started with the `qmu-net` target:
 
 ```shell
-make qemu-net
+$ make qemu-net
 ```
 After assigning an address to the TAP interface:
 
 ```shell
-ip addr add 10.0.0.2 dev tap0
+$ ip addr add 10.0.0.2 dev tap0
 ```
 
 The `xv6` operating system should respond to ping.
