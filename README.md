@@ -42,7 +42,7 @@ In addition to the standard Make targets provided by the `xv6` project, the
 [flag](https://wiki.qemu.org/Documentation/Networking) to emulate an E1000
 family network device. The `-nic`
 [flag](https://wiki.qemu.org/Documentation/Networking) creates a new
-[TAP](https://en.wikipedia.org/wiki/TUN/TAP) device which may require
+[TAP](https://en.wikipedia.org/wiki/TUN/TAP) device which may require root
 privileges.
 
 The `xv6` network stack supports a single interface which is assigned a fixed
