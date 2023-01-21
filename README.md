@@ -54,7 +54,7 @@ The project can be built with `make`:
 $ make
 ```
 
-Once built, the `xv6` operating system can be started with the `qmu-net` target:
+Once built, the `xv6` operating system can be started with the `qemu-net` target:
 
 ```shell
 $ make qemu-net
