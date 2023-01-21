@@ -2,7 +2,7 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::net::{FromBuffer, ToBuffer};
+use crate::packet_buffer::{FromBuffer, ToBuffer};
 
 /// Represents an ICMP echo packet.
 #[derive(Debug, Clone)]

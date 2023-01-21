@@ -1,4 +1,4 @@
-use crate::net::{FromBuffer, ToBuffer};
+use crate::packet_buffer::{FromBuffer, ToBuffer};
 
 /// An IPv4 address.
 #[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]

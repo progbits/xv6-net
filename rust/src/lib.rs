@@ -21,6 +21,7 @@ mod icmp;
 mod ip;
 mod mm;
 mod net;
+mod packet_buffer;
 mod pci;
 mod udp;
 

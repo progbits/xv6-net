@@ -15,4 +15,8 @@ extern "C" {
     // syscall.c
     pub fn argint(n: c_int, ip: *mut c_int);
     pub fn argptr(n: c_int, pp: *const *mut c_void, size: c_int);
+
+    // spinlock.c
+    pub fn pushcli();
+    pub fn popcli();
 }

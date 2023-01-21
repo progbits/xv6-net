@@ -1,6 +1,8 @@
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{spin_loop_hint, AtomicBool, Ordering};
+
+use crate::kernel::{popcli, pushcli};
 
 /// A simple spinlock implementation.
 pub struct Spinlock<T> {
@@ -10,7 +12,8 @@ pub struct Spinlock<T> {
     data: UnsafeCell<T>,
 }
 
-unsafe impl<T> Sync for Spinlock<T> {}
+unsafe impl<T: Send> Sync for Spinlock<T> {}
+unsafe impl<T: Send> Send for Spinlock<T> {}
 
 impl<T> Spinlock<T> {
     #[inline(always)]
@@ -21,26 +24,45 @@ impl<T> Spinlock<T> {
         }
     }
 
-    /// Try and acquire the lock, spinning while it is unavaliable.
-    /// TODO: Disable interrupts.
+    #[inline(always)]
+    pub fn is_locked(&self) -> bool {
+        self.lock.load(Ordering::Relaxed)
+    }
+
+    #[inline(always)]
     pub fn lock(&self) -> SpinlockGuard<T> {
         loop {
             if !self.lock.compare_and_swap(false, true, Ordering::Acquire) {
+                self.on_lock();
                 return SpinlockGuard { spinlock: self };
             }
+            spin_loop_hint();
+        }
+    }
+
+    #[inline(always)]
+    fn on_lock(&self) {
+        unsafe {
+            pushcli();
+        }
+    }
+
+    #[inline(always)]
+    fn on_unlock(&self) {
+        unsafe {
+            popcli();
         }
     }
 }
 
-/// RAII wrapper.
 pub struct SpinlockGuard<'a, T: 'a> {
     spinlock: &'a Spinlock<T>,
 }
 
-/// Unlock on drop.
 impl<'a, T> Drop for SpinlockGuard<'a, T> {
     fn drop(&mut self) {
         self.spinlock.lock.store(false, Ordering::Release);
+        self.spinlock.on_unlock();
     }
 }
 

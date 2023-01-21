@@ -5,7 +5,8 @@ use crate::ethernet::EthernetAddress;
 use crate::ip::Ipv4Addr;
 use crate::kernel::{cprint, ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
-use crate::net::{NetworkDevice, PacketBuffer};
+use crate::net::NetworkDevice;
+use crate::packet_buffer::PacketBuffer;
 use crate::pci;
 
 const IRQ_PIC0: u32 = 0xB;

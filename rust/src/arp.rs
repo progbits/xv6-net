@@ -4,37 +4,40 @@ use alloc::format;
 
 use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
 use crate::ip::Ipv4Addr;
-
-use crate::net::{FromBuffer, NetworkDevice, PacketBuffer, ToBuffer, PACKET_BUFFER_SIZE};
+use crate::kernel::cprint;
+use crate::net::NetworkDevice;
+use crate::packet_buffer::{FromBuffer, PacketBuffer, ToBuffer, BUFFER_SIZE};
 use crate::spinlock::Spinlock;
 
-/// ARP Cache.
-static ARP_CACHE: Spinlock<ArpCache> = Spinlock::<ArpCache>::new(ArpCache(BTreeMap::new()));
-
-pub struct ArpCache(BTreeMap<Ipv4Addr, EthernetAddress>);
+pub struct ArpCache {
+    cache: BTreeMap<Ipv4Addr, EthernetAddress>,
+}
 
 impl ArpCache {
+    pub const fn new() -> Self {
+        ArpCache {
+            cache: BTreeMap::new(),
+        }
+    }
+
     /// Return the hardware address, if it exists in the cache.
-    pub fn hardware_address(protocol_address: &Ipv4Addr) -> Option<EthernetAddress> {
-        let cache = ARP_CACHE.lock();
-        let result = cache.0.get(protocol_address).copied();
-        result
+    pub fn hardware_address(&self, protocol_address: &Ipv4Addr) -> Option<EthernetAddress> {
+        self.cache.get(protocol_address).copied()
     }
 
     /// Add a new entry from an ARP reply.
-    pub fn reply(arp_packet: ArpPacket) {
+    pub fn reply(&mut self, arp_packet: ArpPacket) {
         match arp_packet.oper {
             Operation::Request | Operation::Unknown => return,
-            Operation::Reply => (),
+            Operation::Reply => {
+                self.cache.insert(arp_packet.spa, arp_packet.sha);
+            }
         }
-
-        let mut cache = ARP_CACHE.lock();
-        cache.0.insert(arp_packet.spa, arp_packet.sha);
     }
 
     /// Send a request to resolve a hardware address.
     pub fn resolve(protocol_address: &Ipv4Addr, device: &mut Box<dyn NetworkDevice>) {
-        let mut packet_buffer = PacketBuffer::new(PACKET_BUFFER_SIZE);
+        let mut packet_buffer = PacketBuffer::new(BUFFER_SIZE);
 
         let broadcast_hardware_address =
             EthernetAddress::from_slice(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
