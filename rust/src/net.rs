@@ -66,9 +66,9 @@ struct Socket {
     r#type: SocketType,
     source_port: Option<u16>,
     source_address: Option<Ipv4Addr>,
-    destination_port: Option<u16>,
-    destination_protocol_address: Option<Ipv4Addr>,
-    destination_hardware_address: Option<EthernetAddress>,
+    dest_port: Option<u16>,
+    dest_protocol_address: Option<Ipv4Addr>,
+    dest_hardware_address: Option<EthernetAddress>,
 }
 
 /// Initialize the network stack.
@@ -150,17 +150,13 @@ unsafe extern "C" fn sys_connect() -> i32 {
     let mut socket_id: i32 = 0;
     argint(0, &mut socket_id);
 
-    let mut destination_address: i32 = 0;
-    argint(1, &mut destination_address);
+    let mut dest_address: i32 = 0;
+    argint(1, &mut dest_address);
 
-    let mut destination_port: i32 = 0;
-    argint(2, &mut destination_port);
+    let mut dest_port: i32 = 0;
+    argint(2, &mut dest_port);
 
-    match connect(
-        socket_id as u32,
-        destination_address as u32,
-        destination_port as u32,
-    ) {
+    match connect(socket_id as u32, dest_address as u32, dest_port as u32) {
         Ok(()) => 0,
         Err(()) => 1,
     }
@@ -221,23 +217,23 @@ fn create_socket(domain: SocketType) -> u32 {
             r#type: domain,
             source_port: None,
             source_address: None,
-            destination_port: None,
-            destination_protocol_address: None,
-            destination_hardware_address: None,
+            dest_port: None,
+            dest_protocol_address: None,
+            dest_hardware_address: None,
         },
     );
     socket_id as u32
 }
 
 /// Associate a socket with an address.
-fn connect(socket_id: u32, destination_address: u32, destination_port: u32) -> Result<(), ()> {
+fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> {
     // Look up the desination hardware address from the cache or try and resolve it.
-    let destination_protocol_address = Ipv4Addr::from(destination_address as u32);
-    let destination_hardware_address = {
-        let mut arp_cache = ARP_CACHE.lock();
-        arp_cache.hardware_address(&destination_protocol_address)
+    let dest_protocol_address = Ipv4Addr::from(dest_address as u32);
+    let dest_hardware_address = {
+        let arp_cache = ARP_CACHE.lock();
+        arp_cache.hardware_address(&dest_protocol_address)
     };
-    let destination_hardware_address = match destination_hardware_address {
+    let dest_hardware_address = match dest_hardware_address {
         Some(x) => x,
         None => {
             // Address not in the cache. Make the request, release the device lock try and
@@ -248,7 +244,7 @@ fn connect(socket_id: u32, destination_address: u32, destination_port: u32) -> R
                     Some(ref mut x) => x,
                     None => return Err(()),
                 };
-                ArpCache::resolve(&destination_protocol_address, device);
+                ArpCache::resolve(&dest_protocol_address, device);
                 drop(device);
             }
 
@@ -262,7 +258,7 @@ fn connect(socket_id: u32, destination_address: u32, destination_port: u32) -> R
 
             {
                 let arp_cache = ARP_CACHE.lock();
-                match arp_cache.hardware_address(&destination_protocol_address) {
+                match arp_cache.hardware_address(&dest_protocol_address) {
                     Some(x) => x,
                     None => return Err(()),
                 }
@@ -277,15 +273,15 @@ fn connect(socket_id: u32, destination_address: u32, destination_port: u32) -> R
     };
 
     // Populate the Socket with details of the connection.
-    socket.destination_protocol_address = Some(destination_protocol_address);
-    socket.destination_hardware_address = Some(destination_hardware_address);
-    socket.destination_port = Some((destination_port as i16).try_into().unwrap());
+    socket.dest_protocol_address = Some(dest_protocol_address);
+    socket.dest_hardware_address = Some(dest_hardware_address);
+    socket.dest_port = Some((dest_port as i16).try_into().unwrap());
 
     unsafe {
         cprint(
             format!(
                 "Hello from sys_connect() {}, {}, {}\n\x00",
-                socket_id, destination_address, destination_port
+                socket_id, dest_address, dest_port
             )
             .as_ptr(),
         );
