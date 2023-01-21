@@ -46,7 +46,7 @@ family network device. The `-nic`
 privileges.
 
 The `xv6` network stack supports a single interface which is assigned a fixed
-address of 10.0.0.2.
+address of `10.0.0.2`.
 
 The project can be built with `make`:
 
