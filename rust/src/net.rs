@@ -201,10 +201,18 @@ unsafe extern "C" fn sys_send() {
 unsafe extern "C" fn sys_recv() {
     cprint("Hello from sys_recv()\n\x00".as_ptr());
 }
-/// The accept system call.
+
+/// The shutdown system call.
 #[no_mangle]
-unsafe extern "C" fn sys_shutdown() {
+unsafe extern "C" fn sys_shutdown() -> i32 {
+    let mut socket_id: i32 = 0;
+    argint(0, &mut socket_id);
+
     cprint("Hello from sys_shutdown()\n\x00".as_ptr());
+    match shutdown_socket(socket_id as u32) {
+        Ok(_) => 0,
+        Err(_) => 1,
+    }
 }
 
 /// Create a new socket of the specified domain and return the socket identifer.
@@ -287,6 +295,15 @@ fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> 
         );
     }
     Ok(())
+}
+
+/// Clean up a socket and its resouces.
+fn shutdown_socket(socket_id: u32) -> Result<(), ()> {
+    let mut sockets = SOCKETS.lock();
+    match sockets.remove(&(socket_id as usize)) {
+        Some(_) => Ok(()),
+        None => Err(()),
+    }
 }
 
 /// Main entrypoint into the kernel network stack.

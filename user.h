@@ -34,7 +34,7 @@ int listen();
 int accept();
 int send(int, const void  *, int);
 int recv();
-int shutdown();
+int shutdown(int);
 
 // ulib.c
 int stat(const char *, struct stat *);

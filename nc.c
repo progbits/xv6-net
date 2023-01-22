@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
   accept();
   send(0, "hello, world\n", 14);
   recv();
-  shutdown();
+  shutdown(fd);
 
   printf(2, "socketfd %d\n", fd);
 
