@@ -34,10 +34,10 @@ int main(int argc, char *argv[]) {
   int fd = socket(0);
   bind();
   connect(fd, 0x0A000001, 5432);
-  listen();
-  accept();
-  send(0, "hello, world\n", 14);
-  recv();
+  //listen();
+  //accept();
+  send(fd, "hello, world\n", 14);
+  //recv();
   shutdown(fd);
 
   printf(2, "socketfd %d\n", fd);

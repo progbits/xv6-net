@@ -5,6 +5,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ffi::c_void;
+use core::slice;
 
 use crate::arp;
 use crate::arp::{ArpCache, ArpPacket};
@@ -156,6 +157,10 @@ unsafe extern "C" fn sys_connect() -> i32 {
     let mut dest_port: i32 = 0;
     argint(2, &mut dest_port);
 
+    if socket_id < 0 {
+        return 1;
+    }
+
     match connect(socket_id as u32, dest_address as u32, dest_port as u32) {
         Ok(()) => 0,
         Err(()) => 1,
@@ -176,7 +181,7 @@ unsafe extern "C" fn sys_accept() {
 
 /// The send system call.
 #[no_mangle]
-unsafe extern "C" fn sys_send() {
+unsafe extern "C" fn sys_send() -> i32 {
     let mut socket_id: i32 = 0;
     argint(0, &mut socket_id);
 
@@ -186,14 +191,26 @@ unsafe extern "C" fn sys_send() {
 
     let mut len: i32 = 0;
     argint(2, &mut len);
+    let len = len as usize;
 
-    cprint(
-        format!(
-            "Hello from sys_send() {}, {}, {}\n\x00",
-            socket_id, *data, len
-        )
-        .as_ptr(),
-    );
+    let data = {
+        let slice = unsafe { slice::from_raw_parts(data, len) };
+        let mut tmp = vec![0u8; len];
+        tmp.copy_from_slice(slice);
+        tmp
+    };
+
+    match send(socket_id as u32, &data) {
+        Ok(n) => match i32::try_from(n) {
+            Ok(n) => n,
+            Err(_) => {
+                // i32::max() is much (much) larger than any current hardware supported frame
+                // size, so this should never happen under normal operation.
+                panic!()
+            }
+        },
+        Err(_) => -1,
+    }
 }
 
 /// The recv system call.
@@ -281,20 +298,75 @@ fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> 
     };
 
     // Populate the Socket with details of the connection.
-    socket.dest_protocol_address = Some(dest_protocol_address);
-    socket.dest_hardware_address = Some(dest_hardware_address);
+    socket.source_port = Some((1024 + socket_id) as u16);
+    socket.source_address = Some(Ipv4Addr::from(0x0A000002 as u32));
     socket.dest_port = Some((dest_port as i16).try_into().unwrap());
+    socket.dest_hardware_address = Some(dest_hardware_address);
+    socket.dest_protocol_address = Some(dest_protocol_address);
 
-    unsafe {
-        cprint(
-            format!(
-                "Hello from sys_connect() {}, {}, {}\n\x00",
-                socket_id, dest_address, dest_port
-            )
-            .as_ptr(),
-        );
-    }
     Ok(())
+}
+
+/// Encapsulate and send data on a socket.
+///
+/// TODO: Refactor packet building to one place.
+fn send(socket_id: u32, data: &[u8]) -> Result<u32, ()> {
+    let mut sockets = SOCKETS.lock();
+    let mut socket = match sockets.get_mut(&(socket_id as usize)) {
+        Some(x) => x,
+        None => return Err(()),
+    };
+
+    // Create a new packet buffer.
+    let mut packet = PacketBuffer::new(BUFFER_SIZE);
+
+    // Build and write the udp packet, sending up to a maximum of 1024 bytes.
+    let data_len: u16 = if data.len() > 1024 {
+        1024
+    } else {
+        data.len() as u16
+    };
+
+    let udp_packet = UdpPacket::new(
+        socket.source_port.unwrap(),
+        socket.dest_port.unwrap(),
+        data[..data_len as usize].to_vec(),
+    );
+    packet.serialize(&udp_packet);
+
+    // Build and write the IP packet.
+    let ip_packet = Ipv4Packet::new(
+        0,
+        0,
+        (packet.len() + 20) as u16,
+        0,
+        true,
+        false,
+        0,
+        64,
+        Protocol::UDP,
+        socket.source_address.unwrap(),
+        socket.dest_protocol_address.unwrap(),
+    );
+    packet.serialize(&ip_packet);
+
+    // Write the ethernet frame header and send the frame.
+    let mut device = NETWORK_DEVICE.lock();
+    let device: &mut Box<dyn NetworkDevice> = match *device {
+        Some(ref mut x) => x,
+        None => return Err(()),
+    };
+
+    let ethernet_frame = EthernetFrame::new(
+        socket.dest_hardware_address.unwrap(),
+        device.hardware_address(),
+        Ethertype::IPV4,
+    );
+    packet.serialize(&ethernet_frame);
+    device.send(packet);
+
+    // Encapsulate the data in a UDP packet.
+    Ok(data_len as u32)
 }
 
 /// Clean up a socket and its resouces.
@@ -313,60 +385,54 @@ fn shutdown_socket(socket_id: u32) -> Result<(), ()> {
 pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) {
     let ethernet_frame = match buffer.parse::<EthernetFrame>() {
         Ok(x) => x,
-        Err(_) => unsafe {
-            return;
-        },
+        Err(_) => return,
     };
 
     match ethernet_frame.ethertype {
         Ethertype::IPV4 => {
             let ip_packet = match buffer.parse::<Ipv4Packet>() {
                 Ok(x) => x,
-                Err(_) => unsafe {
-                    return;
-                },
+                Err(_) => return,
             };
 
-            unsafe {
-                match ip_packet.protocol() {
-                    Protocol::ICMP => match handle_icmp(&mut buffer, &device) {
-                        Some(mut x) => {
-                            let ip_packet = Ipv4Packet::new(
-                                0,
-                                0,
-                                (x.len() + 20) as u16,
-                                0,
-                                true,
-                                false,
-                                0,
-                                64,
-                                Protocol::ICMP,
-                                device.protocol_address(),
-                                ip_packet.source(),
-                            );
-                            x.serialize(&ip_packet);
+            match ip_packet.protocol() {
+                Protocol::ICMP => match handle_icmp(&mut buffer, &device) {
+                    Some(mut x) => {
+                        let ip_packet = Ipv4Packet::new(
+                            0,
+                            0,
+                            (x.len() + 20) as u16,
+                            0,
+                            true,
+                            false,
+                            0,
+                            64,
+                            Protocol::ICMP,
+                            device.protocol_address(),
+                            ip_packet.source(),
+                        );
+                        x.serialize(&ip_packet);
 
-                            let ethernet_frame = EthernetFrame::new(
-                                ethernet_frame.source,
-                                device.hardware_address(),
-                                Ethertype::IPV4,
-                            );
-                            x.serialize(&ethernet_frame);
-                            device.send(x);
-                        }
-                        None => (),
-                    },
-                    Protocol::UDP => {
-                        let udp_packet = match buffer.parse::<UdpPacket>() {
-                            Ok(x) => x,
-                            Err(_) => {
-                                return;
-                            }
-                        };
+                        let ethernet_frame = EthernetFrame::new(
+                            ethernet_frame.source,
+                            device.hardware_address(),
+                            Ethertype::IPV4,
+                        );
+                        x.serialize(&ethernet_frame);
+                        device.send(x);
                     }
-                    Protocol::TCP => (),
-                    Protocol::UNKNOWN => (),
+                    None => (),
+                },
+                Protocol::UDP => {
+                    let udp_packet = match buffer.parse::<UdpPacket>() {
+                        Ok(x) => x,
+                        Err(_) => {
+                            return;
+                        }
+                    };
                 }
+                Protocol::TCP => (),
+                Protocol::UNKNOWN => (),
             }
         }
         Ethertype::ARP => match handle_arp(&mut buffer, &device) {
@@ -397,9 +463,7 @@ pub fn handle_icmp(
 ) -> Option<PacketBuffer> {
     let icmp_packet = match buffer.parse::<IcmpPacket>() {
         Ok(x) => x,
-        Err(_) => unsafe {
-            return None;
-        },
+        Err(_) => return None,
     };
 
     match icmp_packet {
@@ -426,9 +490,7 @@ pub fn handle_arp(
 ) -> Option<PacketBuffer> {
     let arp_packet = match buffer.parse::<ArpPacket>() {
         Ok(x) => x,
-        Err(_) => unsafe {
-            return None;
-        },
+        Err(_) => return None,
     };
 
     // Get the protocol address of the device.
