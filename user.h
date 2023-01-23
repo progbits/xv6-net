@@ -23,16 +23,12 @@ int getpid(void);
 char *sbrk(int);
 int sleep(int);
 int uptime(void);
-int netopen(uint, uint, uint);
-int netclose(int);
-int netwrite(uint, char *, uint);
-int netread(uint, char *, uint);
 int socket(int);
 int bind();
 int connect(int, int, int);
 int listen();
 int accept();
-int send(int, const void  *, int);
+int send(int, const void *, int);
 int recv();
 int shutdown(int);
 

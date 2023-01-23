@@ -20,10 +20,6 @@
 #define SYS_link 19
 #define SYS_mkdir 20
 #define SYS_close 21
-#define SYS_netopen 22
-#define SYS_netclose 23
-#define SYS_netread 24
-#define SYS_netwrite 25
 #define SYS_socket 26
 #define SYS_bind 27
 #define SYS_connect 28

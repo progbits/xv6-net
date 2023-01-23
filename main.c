@@ -31,7 +31,6 @@ int main(void) {
   binit();                                    // buffer cache
   fileinit();                                 // file table
   ideinit();                                  // disk
-  netinit();                                  // network stack
   startothers();                              // start other processors
   kinit2(P2V(4 * 1024 * 1024), P2V(PHYSTOP)); // must come after startothers()
   rustnetinit();                              // network stack
