@@ -41,8 +41,6 @@ int main(int argc, char *argv[]) {
 
   // Open a new socket for the specified address and port.
   int fd = socket(0);
-  printf(2, "socketfd %d\n", fd);
-
   bind();
   connect(fd, addr, port);
 

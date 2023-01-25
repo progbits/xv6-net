@@ -141,9 +141,7 @@ unsafe extern "C" fn sys_socket() -> i32 {
 
 /// The bind system call.
 #[no_mangle]
-unsafe extern "C" fn sys_bind() {
-    cprint("Hello from sys_bind()\n\x00".as_ptr());
-}
+unsafe extern "C" fn sys_bind() {}
 
 /// The connect system call.
 #[no_mangle]
@@ -169,15 +167,11 @@ unsafe extern "C" fn sys_connect() -> i32 {
 
 /// The listen system call.
 #[no_mangle]
-unsafe extern "C" fn sys_listen() {
-    cprint("Hello from sys_listen()\n\x00".as_ptr());
-}
+unsafe extern "C" fn sys_listen() {}
 
 /// The accept system call.
 #[no_mangle]
-unsafe extern "C" fn sys_accept() {
-    cprint("Hello from sys_accept()\n\x00".as_ptr());
-}
+unsafe extern "C" fn sys_accept() {}
 
 /// The send system call.
 #[no_mangle]
@@ -215,9 +209,7 @@ unsafe extern "C" fn sys_send() -> i32 {
 
 /// The recv system call.
 #[no_mangle]
-unsafe extern "C" fn sys_recv() {
-    cprint("Hello from sys_recv()\n\x00".as_ptr());
-}
+unsafe extern "C" fn sys_recv() {}
 
 /// The shutdown system call.
 #[no_mangle]
@@ -225,7 +217,6 @@ unsafe extern "C" fn sys_shutdown() -> i32 {
     let mut socket_id: i32 = 0;
     argint(0, &mut socket_id);
 
-    cprint("Hello from sys_shutdown()\n\x00".as_ptr());
     match shutdown_socket(socket_id as u32) {
         Ok(_) => 0,
         Err(_) => 1,
