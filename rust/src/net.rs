@@ -82,7 +82,7 @@ unsafe extern "C" fn rustnetinit() {
     // Setup the network device and panic if no device is avaliable.
     let e1000_device = match E1000::new() {
         Some(x) => x,
-        None => panic!(),
+        None => panic!("no network device\n\x00"),
     };
 
     // Assign a hardcoded, static IP to the device for now.
@@ -185,7 +185,7 @@ unsafe extern "C" fn sys_send() -> i32 {
             Err(_) => {
                 // i32::max() is much (much) larger than any current hardware supported frame
                 // size, so this should never happen under normal operation.
-                panic!()
+                panic!("send\n\x00")
             }
         },
         Err(_) => -1,
@@ -359,7 +359,7 @@ fn handle_interrupt() {
     let mut device = NETWORK_DEVICE.lock();
     let mut device: &mut Box<dyn NetworkDevice> = match *device {
         Some(ref mut x) => x,
-        None => panic!(),
+        None => panic!("no network device\n\x00"),
     };
 
     // Clear device interrupt register.
@@ -471,7 +471,7 @@ pub fn handle_icmp(
                 return Some(packet);
             }
         }
-        _ => panic!(),
+        _ => panic!("unknown icmp packet\n\x00"),
     }
     None
 }

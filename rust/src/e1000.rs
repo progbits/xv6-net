@@ -164,8 +164,7 @@ impl E1000 {
         }
 
         if target_device.is_none() {
-            cprint(b"failed to locate network device\n\x00".as_ptr());
-            panic!();
+            panic!("no network device\n\x00");
         }
 
         // Configure the device command register and read the MMIO base register.
@@ -231,7 +230,7 @@ impl E1000 {
                 let mac_high: u32 = u32::from_le_bytes(mac_padded[4..].try_into().unwrap());
                 self.write_register(DeviceRegister::RAH, mac_high);
             }
-            None => panic!(),
+            None => panic!("no mac address\n\x00"),
         }
         // Allocate a recieve buffer for each of the descriptors.
         self.rx.resize_with(256, Default::default);
@@ -344,11 +343,18 @@ impl E1000 {
 /// Implement the common network interface.
 impl NetworkDevice for E1000 {
     fn hardware_address(&self) -> EthernetAddress {
-        self.hardware_address.unwrap()
+        match self.hardware_address {
+            Some(x) => x,
+            None => panic!("hardware address not set\n\x00"),
+        }
     }
 
+    /// TODO: Perfectly valid not to have a protocol address.
     fn protocol_address(&self) -> Ipv4Addr {
-        self.protocol_address.unwrap()
+        match self.protocol_address {
+            Some(x) => x,
+            None => panic!("protocol address not set\n\x00"),
+        }
     }
 
     fn set_protocol_address(&mut self, protocol_address: Ipv4Addr) {
@@ -371,7 +377,7 @@ impl NetworkDevice for E1000 {
             } else if mask & InterruptMask::RXDMTO as u32 != 0 {
                 // cprint(b"e1000: rx min threshold\n\x00".as_ptr());
             } else if mask & InterruptMask::RXO as u32 != 0 {
-                panic!();
+                panic!("receiver overrun\n\x00");
             } else if mask & InterruptMask::RXT0 as u32 != 0 {
                 // cprint(b"e1000: rx min threshold\n\x00".as_ptr());
             }
@@ -416,7 +422,7 @@ impl NetworkDevice for E1000 {
 
         let desc = &self.rx[self.rx_idx as usize];
         if !desc.end_of_packet() {
-            panic!(); // TODO: Handle?
+            panic!("partial packet\n\x00"); // TODO: Handle?
         }
 
         self.rx_idx += 1;

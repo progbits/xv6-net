@@ -19,11 +19,11 @@ unsafe impl Sync for KernelAllocator {}
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if layout.size() > PAGE_SIZE {
-            panic!()
+            panic!("alloc larger than page\n\x00")
         }
         let mem = kalloc() as *mut u8;
         if mem.is_null() {
-            panic!()
+            panic!("alloc failed\n\x00")
         }
         mem
     }

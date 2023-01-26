@@ -80,8 +80,7 @@ impl Type {
             Type::DestinationUnreachable => 0x03u8,
             Type::SourceQuench => 0x04u8,
             Type::EchoRequest => 0x08u8,
-            Type::Unknown => panic!(),
-            _ => panic!(),
+            Type::Unknown | _ => panic!("unknown icmp type\n\x00"),
         }
     }
 }
@@ -98,7 +97,7 @@ impl IcmpPacket {
                 sequence_number: u16::from_be_bytes([buf[6], buf[7]]),
                 data: buf[8..].to_vec(),
             }),
-            _ => panic!(),
+            _ => panic!("unknown icmp type\n\x00"),
         }
     }
 
@@ -123,7 +122,7 @@ impl FromBuffer for IcmpPacket {
     fn size(&self) -> usize {
         match self {
             IcmpPacket::EchoMessage(x) => 8 + x.data.len(),
-            _ => panic!(),
+            _ => panic!("unknown icmp type\n\x00"),
         }
     }
 }
@@ -142,14 +141,14 @@ impl ToBuffer for IcmpPacket {
                 let checksum = IcmpPacket::calculate_checksum(&buf[0..8 + x.data.len()]);
                 buf[2..4].copy_from_slice(&(checksum.to_be_bytes()));
             }
-            _ => panic!(),
+            _ => panic!("unknown icmp type\n\x00"),
         }
     }
 
     fn size(&self) -> usize {
         match self {
             IcmpPacket::EchoMessage(x) => 8 + x.data.len(),
-            _ => panic!(),
+            _ => panic!("unknown icmp type\n\x00"),
         }
     }
 }

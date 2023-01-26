@@ -6,8 +6,6 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 
-use crate::kernel::cprint;
-
 mod asm;
 mod kalloc;
 mod kernel;
@@ -26,10 +24,16 @@ mod pci;
 mod udp;
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    let message = match info.payload().downcast_ref::<&str>() {
+        Some(s) => s,
+        None => "Rust",
+    };
+
     unsafe {
-        cprint("Panic!\n\x00".as_ptr());
+        kernel::panic(message.as_ptr());
     }
+
     loop {}
 }
 
