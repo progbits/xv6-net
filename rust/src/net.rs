@@ -84,6 +84,7 @@ unsafe extern "C" fn rustnetinit() {
         Some(x) => x,
         None => panic!("no network device\n\x00"),
     };
+    cprint("Configured E1000 family device\n\x00".as_ptr());
 
     // Assign a hardcoded, static IP to the device for now.
     let mut network_device = NETWORK_DEVICE.lock();
