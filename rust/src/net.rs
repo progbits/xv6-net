@@ -102,22 +102,7 @@ unsafe extern "C" fn rustnetinit() {
 /// Entrypoint for network device interrupts.
 #[no_mangle]
 unsafe extern "C" fn netintr() {
-    let mut device = NETWORK_DEVICE.lock();
-    let mut device: &mut Box<dyn NetworkDevice> = match *device {
-        Some(ref mut x) => x,
-        None => panic!(),
-    };
-
-    // Clear device interrupt register.
-    device.clear_interrupts();
-
-    // Handle all avaliable packets.
-    loop {
-        match device.recv() {
-            Some(b) => handle_packet(b, &mut device),
-            None => break,
-        }
-    }
+    handle_interrupt();
 }
 
 /// The socket system call.
@@ -369,11 +354,31 @@ fn shutdown_socket(socket_id: u32) -> Result<(), ()> {
     }
 }
 
+/// Main entrypoint for network device interrupts.
+fn handle_interrupt() {
+    let mut device = NETWORK_DEVICE.lock();
+    let mut device: &mut Box<dyn NetworkDevice> = match *device {
+        Some(ref mut x) => x,
+        None => panic!(),
+    };
+
+    // Clear device interrupt register.
+    device.clear_interrupts();
+
+    // Handle all avaliable packets.
+    loop {
+        match device.recv() {
+            Some(b) => handle_packet(b, &mut device),
+            None => break,
+        }
+    }
+}
+
 /// Main entrypoint into the kernel network stack.
 ///
 /// Handles a single, ethernet frame encapsulated packet. Potentially writes
 /// packets back to the network device.
-pub fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) {
+fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) {
     let ethernet_frame = match buffer.parse::<EthernetFrame>() {
         Ok(x) => x,
         Err(_) => return,
