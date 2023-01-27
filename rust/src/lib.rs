@@ -27,7 +27,7 @@ mod udp;
 fn panic(info: &PanicInfo) -> ! {
     let message = match info.payload().downcast_ref::<&str>() {
         Some(s) => s,
-        None => "Rust",
+        None => "rust\x00",
     };
 
     unsafe {
