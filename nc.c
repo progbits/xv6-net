@@ -46,21 +46,11 @@ int main(int argc, char *argv[]) {
 
   // We don't have any `poll` or `select` like functionality, so fork a new
   // process to read received data.
-  int pid = fork();
-  if (pid == 0) {
-    // Forked process will read from the socket.
-    // const uint buf_size = 2048;
-    // char *buf = malloc(buf_size);
-    for (;;) {
-    }
-  } else {
-    // Original process will write to the socket.
-    const uint buf_size = 1024;
-    char *buf = malloc(buf_size);
-    for (;;) {
-      int bytes_read = read(1, buf, buf_size);
-      send(fd, buf, bytes_read);
-    }
+  const uint buf_size = 1024;
+  char *buf = malloc(buf_size);
+  for (;;) {
+    int bytes_read = read(1, buf, buf_size);
+    send(fd, buf, bytes_read);
   }
 
   shutdown(fd);
