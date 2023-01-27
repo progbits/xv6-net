@@ -27,11 +27,11 @@ mod udp;
 fn panic(info: &PanicInfo) -> ! {
     let message = match info.payload().downcast_ref::<&str>() {
         Some(s) => s,
-        None => "rust\x00",
+        None => "rust panic\x00",
     };
 
     unsafe {
-        kernel::panic(message.as_ptr());
+        kernel::cprint(message.as_ptr());
     }
 
     loop {}
