@@ -5,9 +5,7 @@ pub static BUFFER_SIZE: usize = 2048;
 
 /// Represents raw packet data.
 ///
-/// TODO:
-/// 		- Stack allocated buffer?
-/// 		- Zero copy?
+/// TODO: Stack allocated buffer?
 pub struct PacketBuffer {
     /// The raw packet data.
     buf: Vec<u8>,
@@ -45,6 +43,7 @@ impl PacketBuffer {
     }
 
     /// Parse a new packet from the buffer.
+    /// TODO: Zero-copy?
     pub fn parse<T: FromBuffer>(&mut self) -> Result<T, ()> {
         let value = match T::from_buffer(&self.buf[self.offset..]) {
             Ok(x) => x,
@@ -55,19 +54,13 @@ impl PacketBuffer {
     }
 
     /// Serialize a new packet to the buffer.
+    /// TODO: Zero-copy?
     pub fn serialize<T: ToBuffer>(&mut self, value: &T) {
-        if self.offset < value.size() {
-            panic!("packet buffer underrun\n\x00")
-        }
-        let new_offset = self.offset - value.size();
-        let start = self.buf.len() - new_offset;
-        let end = start + value.size();
-        if end > self.buf.len() {
-            panic!("packet buffer overrun\n\x00")
-        }
-        value.to_buffer(&mut self.buf[start..end]);
-        self.offset = new_offset;
+        self.offset += value.size();
         self.written = true;
+        let start = self.buf.len() - self.offset;
+        let end = start + value.size();
+        value.to_buffer(&mut self.buf[start..end]);
     }
 
     /// Return the size of the buffer.
