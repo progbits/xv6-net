@@ -229,6 +229,12 @@ fn create_socket(domain: SocketType) -> u32 {
 
 /// Associate a socket with an address.
 fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> {
+    let mut sockets = SOCKETS.lock();
+    let mut socket = match sockets.get_mut(&(socket_id as usize)) {
+        Some(x) => x,
+        None => return Err(()),
+    };
+
     // Look up the desination hardware address from the cache or try and resolve it.
     let dest_protocol_address = Ipv4Addr::from(dest_address as u32);
     let dest_hardware_address = {
@@ -266,12 +272,6 @@ fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> 
                 }
             }
         }
-    };
-
-    let mut sockets = SOCKETS.lock();
-    let mut socket = match sockets.get_mut(&(socket_id as usize)) {
-        Some(x) => x,
-        None => return Err(()),
     };
 
     // Populate the Socket with details of the connection.
@@ -340,6 +340,7 @@ fn send(socket_id: u32, data: &[u8]) -> Result<u32, ()> {
         Ethertype::IPV4,
     );
     packet.serialize(&ethernet_frame);
+
     device.send(packet);
 
     // Encapsulate the data in a UDP packet.
