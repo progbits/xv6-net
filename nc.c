@@ -1,6 +1,19 @@
 #include "types.h"
 #include "user.h"
 
+enum mode { MODE_SEND, MODE_LISTEN, MODE_UNKNOWN };
+
+const char *usage = "usage: nc [-s|-l] [destination] [port]\n";
+
+enum mode parse_mode(char *mode) {
+  if (mode[1] == 's') {
+    return MODE_SEND;
+  } else if (mode[1] == 'l') {
+    return MODE_LISTEN;
+  }
+  return MODE_UNKNOWN;
+}
+
 // Parse the hexadecimal representation of an IPV4 address from its 'dot'
 // representation.
 uint parse_addr(char *addr) {
@@ -32,27 +45,45 @@ uint parse_addr(char *addr) {
 // flag is somewhat implicit.
 int main(int argc, char *argv[]) {
   if (argc < 3) {
-    printf(2, "usage: nc [destination] [port]\n");
+    printf(2, usage);
     exit();
   }
 
-  uint addr = parse_addr(argv[1]);
-  int port = atoi(argv[2]);
-
-  // Open a new socket for the specified address and port.
-  int fd = socket(0);
-  bind();
-  connect(fd, addr, port);
-
-  // We don't have any `poll` or `select` like functionality, so fork a new
-  // process to read received data.
-  const uint buf_size = 1024;
-  char *buf = malloc(buf_size);
-  for (;;) {
-    int bytes_read = read(1, buf, buf_size);
-    send(fd, buf, bytes_read);
+  // Are we in 'send' (0) or 'listen' (1) mode?
+  enum mode mode = parse_mode(argv[1]);
+  if (mode == MODE_UNKNOWN) {
+    printf(2, usage);
+    exit();
   }
 
-  shutdown(fd);
+  uint addr = parse_addr(argv[2]);
+  int port = atoi(argv[3]);
+
+  // Open a new socket for the specified address and port.
+  int sfd = socket(0);
+  bind();
+  connect(sfd, addr, port);
+
+  const uint buf_size = 1024;
+  char *buf = malloc(buf_size);
+
+  if (mode == MODE_SEND) {
+    for (;;) {
+      int bytes_read = read(1, buf, buf_size);
+      send(sfd, buf, bytes_read);
+    }
+  } else if (mode == MODE_LISTEN) {
+    for (;;) {
+      int bytes_read = recv(sfd, buf, buf_size - 1);
+      if (bytes_read > 0) {
+        buf[bytes_read] = '\x00';
+        printf(1, "%s", buf);
+      } else {
+        sleep(1);
+      }
+    }
+  }
+
+  shutdown(sfd);
   exit();
 }
