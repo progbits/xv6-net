@@ -3,12 +3,12 @@
 
 enum mode { MODE_SEND, MODE_LISTEN, MODE_UNKNOWN };
 
-const char *usage = "usage: nc [-s|-l] [destination] [port]\n";
+const char *usage = "usage: nc [-c|-s] [address] [port]\n";
 
 enum mode parse_mode(char *mode) {
-  if (mode[1] == 's') {
+  if (mode[1] == 'c') {
     return MODE_SEND;
-  } else if (mode[1] == 'l') {
+  } else if (mode[1] == 's') {
     return MODE_LISTEN;
   }
   return MODE_UNKNOWN;
