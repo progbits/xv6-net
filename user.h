@@ -24,7 +24,7 @@ char *sbrk(int);
 int sleep(int);
 int uptime(void);
 int socket(int);
-int bind();
+int bind(int, int, int);
 int connect(int, int, int);
 int listen();
 int accept();

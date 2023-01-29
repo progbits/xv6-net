@@ -56,25 +56,29 @@ int main(int argc, char *argv[]) {
     exit();
   }
 
+  // Parse the address and port.
   uint addr = parse_addr(argv[2]);
   int port = atoi(argv[3]);
 
-  // Open a new socket for the specified address and port.
-  int sfd = socket(0);
-  bind();
-  connect(sfd, addr, port);
-
+  // Open a new socket and setup the send/receive buffer.
+  int sockfd = socket(0);
   const uint buf_size = 1024;
   char *buf = malloc(buf_size);
 
   if (mode == MODE_SEND) {
+    // Set up the socket with details of the remote address and port.
+    connect(sockfd, addr, port);
+    // Send data from stdin to the socket.
     for (;;) {
       int bytes_read = read(1, buf, buf_size);
-      send(sfd, buf, bytes_read);
+      send(sockfd, buf, bytes_read);
     }
   } else if (mode == MODE_LISTEN) {
+    // Bind the socket to the specified local address and port.
+    bind(sockfd, addr, port);
+    // Read data from the socket.
     for (;;) {
-      int bytes_read = recv(sfd, buf, buf_size - 1);
+      int bytes_read = recv(sockfd, buf, buf_size - 1);
       if (bytes_read > 0) {
         buf[bytes_read] = '\x00';
         printf(1, "%s", buf);
@@ -84,6 +88,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  shutdown(sfd);
+  shutdown(sockfd);
   exit();
 }

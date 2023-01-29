@@ -128,7 +128,26 @@ unsafe extern "C" fn sys_socket() -> i32 {
 
 /// The bind system call.
 #[no_mangle]
-unsafe extern "C" fn sys_bind() {}
+unsafe extern "C" fn sys_bind() -> i32 {
+    let mut socket_id: i32 = 0;
+    argint(0, &mut socket_id);
+
+    let mut source_address: i32 = 0;
+    argint(1, &mut source_address);
+
+    let mut source_port: i32 = 0;
+    argint(2, &mut source_port);
+
+    let source_port: u16 = match source_port.try_into() {
+        Ok(x) => x,
+        Err(_) => return 1,
+    };
+
+    match bind(socket_id as u32, source_address as u32, source_port) {
+        Ok(()) => 0,
+        Err(()) => 1,
+    }
+}
 
 /// The connect system call.
 #[no_mangle]
@@ -244,7 +263,24 @@ fn create_socket(domain: SocketType) -> u32 {
     socket_id as u32
 }
 
-/// Associate a socket with an address.
+/// Bind a socket to a local address and port.
+///
+/// TODO:
+/// 	- Don't hardcode address to 10.0.0.2
+fn bind(socket_id: u32, source_address: u32, source_port: u16) -> Result<(), ()> {
+    let mut sockets = SOCKETS.lock();
+    let mut socket = match sockets.get_mut(&(socket_id as usize)) {
+        Some(x) => x,
+        None => return Err(()),
+    };
+
+    socket.source_port = Some(source_port);
+    socket.source_address = Some(Ipv4Addr::from(0x0A000002 as u32));
+
+    Ok(())
+}
+
+/// Connect to a remote socket.
 fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> {
     let mut sockets = SOCKETS.lock();
     let mut socket = match sockets.get_mut(&(socket_id as usize)) {
@@ -291,7 +327,8 @@ fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> 
         }
     };
 
-    // Populate the Socket with details of the connection.
+    // Populate the Socket with the address of the local adaptor, a new ephermal
+    // port and the details of the remote.
     socket.source_port = Some((1024 + socket_id) as u16);
     socket.source_address = Some(Ipv4Addr::from(0x0A000002 as u32));
     socket.dest_port = Some((dest_port as i16).try_into().unwrap());
@@ -303,7 +340,9 @@ fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> 
 
 /// Encapsulate and send data on a socket.
 ///
-/// TODO: Refactor packet building to one place.
+/// TODO:
+/// 	- Refactor packet building to one place.
+/// 	- Check socket has been setup with connect(...).
 fn send(socket_id: u32, data: &[u8]) -> Result<u32, ()> {
     let mut sockets = SOCKETS.lock();
     let socket = match sockets.get_mut(&(socket_id as usize)) {
@@ -366,7 +405,7 @@ fn send(socket_id: u32, data: &[u8]) -> Result<u32, ()> {
 
 /// Read available data from a socket.
 ///
-/// Note: This call is non-blocking, returning immediately if no data is
+/// This call is non-blocking, returning immediately if no data is
 /// available.
 fn recv(socket_id: u32, data: &mut [u8], len: u32) -> Result<u32, ()> {
     let mut sockets = SOCKETS.lock();
