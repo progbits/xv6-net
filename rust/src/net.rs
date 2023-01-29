@@ -394,7 +394,7 @@ fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) 
             };
 
             match ip_packet.protocol() {
-                Protocol::ICMP => match handle_icmp(&mut buffer, &device) {
+                Protocol::ICMP => match handle_icmp(&mut buffer) {
                     Some(mut x) => {
                         let ip_packet = Ipv4Packet::new(
                             0,
@@ -455,10 +455,7 @@ fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) 
 }
 
 /// Handle an ICMP packet.
-pub fn handle_icmp(
-    buffer: &mut PacketBuffer,
-    device: &Box<dyn NetworkDevice>,
-) -> Option<PacketBuffer> {
+pub fn handle_icmp(buffer: &mut PacketBuffer) -> Option<PacketBuffer> {
     let icmp_packet = match buffer.parse::<IcmpPacket>() {
         Ok(x) => x,
         Err(_) => return None,
