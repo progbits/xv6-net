@@ -174,12 +174,7 @@ unsafe extern "C" fn sys_send() -> i32 {
     argint(2, &mut len);
     let len = len as usize;
 
-    let data = {
-        let slice = unsafe { slice::from_raw_parts(data, len) };
-        let mut tmp = vec![0u8; len];
-        tmp.copy_from_slice(slice);
-        tmp
-    };
+    let data = unsafe { slice::from_raw_parts(data, len) };
 
     match send(socket_id as u32, &data) {
         Ok(n) => match i32::try_from(n) {
