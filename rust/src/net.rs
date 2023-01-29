@@ -70,6 +70,7 @@ struct Socket {
     dest_port: Option<u16>,
     dest_protocol_address: Option<Ipv4Addr>,
     dest_hardware_address: Option<EthernetAddress>,
+    buffer: Vec<u8>,
 }
 
 /// Initialize the network stack.
@@ -195,7 +196,25 @@ unsafe extern "C" fn sys_send() -> i32 {
 
 /// The recv system call.
 #[no_mangle]
-unsafe extern "C" fn sys_recv() {}
+unsafe extern "C" fn sys_recv() -> i32 {
+    let mut socket_id: i32 = 0;
+    argint(0, &mut socket_id);
+
+    let mut data: *mut u8 = core::ptr::null_mut();
+    let data_ptr: *const *mut u8 = &mut data;
+    argptr(1, data_ptr as _, 4);
+
+    let mut len: i32 = 0;
+    argint(2, &mut len);
+    let len = len as usize;
+
+    let mut data = slice::from_raw_parts_mut(data, len);
+
+    match recv(socket_id as u32, &mut data, len as u32) {
+        Ok(n) => n as i32,
+        Err(_) => return -1,
+    }
+}
 
 /// The shutdown system call.
 #[no_mangle]
@@ -213,6 +232,8 @@ unsafe extern "C" fn sys_shutdown() -> i32 {
 fn create_socket(domain: SocketType) -> u32 {
     let mut sockets = SOCKETS.lock();
     let socket_id = sockets.len();
+    let mut buffer = vec::Vec::<u8>::new();
+    buffer.reserve(BUFFER_SIZE);
     sockets.insert(
         socket_id,
         Socket {
@@ -222,6 +243,7 @@ fn create_socket(domain: SocketType) -> u32 {
             dest_port: None,
             dest_protocol_address: None,
             dest_hardware_address: None,
+            buffer: buffer,
         },
     );
     socket_id as u32
@@ -289,7 +311,7 @@ fn connect(socket_id: u32, dest_address: u32, dest_port: u32) -> Result<(), ()> 
 /// TODO: Refactor packet building to one place.
 fn send(socket_id: u32, data: &[u8]) -> Result<u32, ()> {
     let mut sockets = SOCKETS.lock();
-    let mut socket = match sockets.get_mut(&(socket_id as usize)) {
+    let socket = match sockets.get_mut(&(socket_id as usize)) {
         Some(x) => x,
         None => return Err(()),
     };
@@ -345,6 +367,38 @@ fn send(socket_id: u32, data: &[u8]) -> Result<u32, ()> {
 
     // Encapsulate the data in a UDP packet.
     Ok(data_len as u32)
+}
+
+/// Read available data from a socket.
+///
+/// Note: This call is non-blocking, returning immediately if no data is
+/// available.
+fn recv(socket_id: u32, data: &mut [u8], len: u32) -> Result<u32, ()> {
+    let mut sockets = SOCKETS.lock();
+    let socket = match sockets.get_mut(&(socket_id as usize)) {
+        Some(x) => x,
+        None => return Err(()),
+    };
+
+    // Does the socket have any data available?
+    if socket.buffer.len() == 0 {
+        return Ok(0);
+    }
+
+    // Copy the most data we can from the socket buffer to userspace buffer.
+    let len = len as usize;
+    let copy_size = if socket.buffer.len() > len {
+        len
+    } else {
+        socket.buffer.len()
+    };
+    data[..copy_size].copy_from_slice(&socket.buffer[..copy_size]);
+
+    // Shrink the socket buffer to remove the copied data.
+    let new_size = socket.buffer.len() - copy_size;
+    socket.buffer.truncate(new_size);
+
+    Ok(copy_size.try_into().unwrap())
 }
 
 /// Clean up a socket and its resouces.
@@ -422,12 +476,7 @@ fn handle_packet(mut buffer: PacketBuffer, device: &mut Box<dyn NetworkDevice>) 
                     None => (),
                 },
                 Protocol::UDP => {
-                    let udp_packet = match buffer.parse::<UdpPacket>() {
-                        Ok(x) => x,
-                        Err(_) => {
-                            return;
-                        }
-                    };
+                    handle_udp(&mut buffer);
                 }
                 Protocol::TCP => (),
                 Protocol::UNKNOWN => (),
@@ -508,4 +557,43 @@ pub fn handle_arp(
         arp::Operation::Unknown => (),
     }
     None
+}
+
+/// Handle a UDP packet.
+///
+/// If this packet is destined for a socket and that socket has space in its
+/// buffer, copy the packet data into the socket buffer.
+pub fn handle_udp(buffer: &mut PacketBuffer) {
+    let packet = match buffer.parse::<UdpPacket>() {
+        Ok(x) => x,
+        Err(_) => return,
+    };
+
+    // Is this packet destined for an active socket?
+    let mut sockets = SOCKETS.lock();
+    let socket_id = {
+        let mut socket_id = None;
+        for (k, v) in sockets.iter() {
+            if Some(packet.dest_port()) == v.source_port {
+                socket_id = Some(k);
+                break;
+            }
+        }
+
+        match socket_id {
+            Some(id) => *id,
+            None => return,
+        }
+    };
+
+    let socket = match sockets.get_mut(&(socket_id as usize)) {
+        Some(x) => x,
+        None => panic!("socket not found\n\x00"),
+    };
+
+    // Do we have space in the socket buffer for the new data?
+    if socket.buffer.len() + packet.data().len() >= BUFFER_SIZE {
+        return;
+    }
+    socket.buffer.extend_from_slice(&packet.data());
 }

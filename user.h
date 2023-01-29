@@ -29,7 +29,7 @@ int connect(int, int, int);
 int listen();
 int accept();
 int send(int, const void *, int);
-int recv();
+int recv(int, const void *, int);
 int shutdown(int);
 
 // ulib.c
