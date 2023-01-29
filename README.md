@@ -116,7 +116,7 @@ $ nc -s 10.0.0.2 5555
 ```
 
 As the network interface has a fixed local address (`10.0.0.2`), the `address`
-argument is currently ignored.
+argument is currently ignored in server mode.
 
 ## Notes
 
