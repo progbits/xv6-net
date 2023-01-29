@@ -25,15 +25,32 @@ impl UdpPacket {
 
     fn from_slice(buf: &[u8]) -> Result<UdpPacket, ()> {
         if buf.len() < 8 {
+            // This can't be a valid UDP packet.
             return Err(());
         }
+
+        let source_port = u16::from_be_bytes([buf[0], buf[1]]);
+        let dest_port = u16::from_be_bytes([buf[2], buf[3]]);
+        let len = u16::from_be_bytes([buf[4], buf[5]]);
+        let checksum = u16::from_be_bytes([buf[6], buf[7]]);
+        let data_len = (len - 8) as usize;
+        let data = buf[8..(8 + data_len)].to_vec();
+
         Ok(UdpPacket {
-            source_port: u16::from_be_bytes([buf[0], buf[1]]),
-            dest_port: u16::from_be_bytes([buf[2], buf[3]]),
-            len: u16::from_be_bytes([buf[4], buf[5]]),
-            checksum: u16::from_be_bytes([buf[6], buf[7]]),
-            data: buf[8..].to_vec(),
+            source_port,
+            dest_port,
+            len,
+            checksum,
+            data,
         })
+    }
+
+    pub fn dest_port(&self) -> u16 {
+        return self.dest_port;
+    }
+
+    pub fn data(&self) -> &[u8] {
+        return &self.data[..];
     }
 }
 
