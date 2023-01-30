@@ -1,6 +1,6 @@
 use core::cell::UnsafeCell;
+use core::hint::spin_loop;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::spin_loop_hint;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::kernel::{popcli, pushcli};
@@ -33,11 +33,14 @@ impl<T> Spinlock<T> {
     #[inline(always)]
     pub fn lock(&self) -> SpinlockGuard<T> {
         loop {
-            if !self.lock.compare_and_swap(false, true, Ordering::Acquire) {
+            if let Ok(_) =
+                self.lock
+                    .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            {
                 self.on_lock();
                 return SpinlockGuard { spinlock: self };
             }
-            spin_loop_hint();
+            spin_loop();
         }
     }
 
