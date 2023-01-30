@@ -1,6 +1,7 @@
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{spin_loop_hint, AtomicBool, Ordering};
+use core::sync::atomic::spin_loop_hint;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::kernel::{popcli, pushcli};
 

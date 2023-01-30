@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::packet_buffer::{FromBuffer, PacketBuffer, ToBuffer};
+use crate::packet_buffer::{FromBuffer, ToBuffer};
 
 /// Represents a UDP packet header.
 #[derive(Debug, Clone)]

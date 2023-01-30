@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::ethernet::EthernetAddress;
 use crate::ip::Ipv4Addr;
-use crate::kernel::{cprint, ioapicenable, kalloc};
+use crate::kernel::{ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::net::NetworkDevice;
 use crate::packet_buffer::PacketBuffer;
@@ -19,8 +19,8 @@ const DEVICE_ID: u16 = 0x100E; // 82540EM Gigabit Ethernet Controller.
 
 // E1000 device registers.
 enum DeviceRegister {
-    CTRL = 0x00000,
-    STATUS = 0x00008,
+    _CTRL = 0x00000,
+    _STATUS = 0x00008,
     EERD = 0x0014,
     ICR = 0x000C0,
     IMS = 0x000D0,
@@ -31,20 +31,20 @@ enum DeviceRegister {
     RDLEN = 0x02808,
     RDH = 0x02810,
     RDT = 0x02818,
-    TDFPC = 0x03430,
+    _TDFPC = 0x03430,
     TDBAL = 0x03800,
     TDBAH = 0x03804,
     TDLEN = 0x03808,
     TDH = 0x03810,
     TDT = 0x03818,
     TCTL = 0x00400,
-    GPTC = 0x04080,
-    TPT = 0x040D4,
+    _GPTC = 0x04080,
+    _TPT = 0x040D4,
     RAL = 0x05400,
     RAH = 0x05404,
-    MTA_LOW = 0x05200,
-    MTA_HIGH = 0x053FC,
-    PBM_START = 0x10000,
+    _MTA_LOW = 0x05200,
+    _MTA_HIGH = 0x053FC,
+    _PBM_START = 0x10000,
 }
 
 enum InterruptMask {
@@ -322,21 +322,6 @@ impl E1000 {
     /// Write a device register.
     unsafe fn write_register(&self, r: DeviceRegister, data: u32) {
         core::ptr::write_volatile((self.mmio_base + r as u32) as *mut u32, data);
-    }
-
-    /// Return the hardware adddress of the network device.
-    fn hardware_address(&self) -> Option<EthernetAddress> {
-        self.hardware_address.clone()
-    }
-
-    /// Return the protocol adddress of the network device.
-    fn protocol_address(&self) -> Option<Ipv4Addr> {
-        self.protocol_address.clone()
-    }
-
-    /// Set the protocol adddress of the network device.
-    fn set_protocol_address(&mut self, protocol_address: Ipv4Addr) {
-        self.protocol_address = Some(protocol_address);
     }
 }
 

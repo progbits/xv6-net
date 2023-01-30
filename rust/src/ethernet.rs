@@ -1,4 +1,4 @@
-use crate::packet_buffer::{FromBuffer, PacketBuffer, ToBuffer};
+use crate::packet_buffer::{FromBuffer, ToBuffer};
 
 /// An ethernet (MAC) address.
 #[derive(Debug, Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]

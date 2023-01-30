@@ -7,7 +7,6 @@ extern "C" {
 
     // console.c
     pub fn cprint(c: *const c_uchar);
-    pub fn panic(c: *const c_uchar);
 
     // kalloc.c
     pub fn kalloc() -> *mut c_void;

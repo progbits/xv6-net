@@ -1,10 +1,7 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
-use alloc::format;
-use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ffi::c_void;
 use core::slice;
 
 use crate::arp;
@@ -57,7 +54,7 @@ pub trait NetworkDevice: Send + Sync {
 
 #[derive(Debug)]
 enum SocketType {
-    TCP,
+    _TCP,
     UDP,
 }
 
@@ -267,7 +264,7 @@ fn create_socket(domain: SocketType) -> u32 {
 ///
 /// TODO:
 /// 	- Don't hardcode address to 10.0.0.2
-fn bind(socket_id: u32, source_address: u32, source_port: u16) -> Result<(), ()> {
+fn bind(socket_id: u32, _source_address: u32, source_port: u16) -> Result<(), ()> {
     let mut sockets = SOCKETS.lock();
     let mut socket = match sockets.get_mut(&(socket_id as usize)) {
         Some(x) => x,
@@ -553,7 +550,6 @@ pub fn handle_icmp(buffer: &mut PacketBuffer) -> Option<PacketBuffer> {
                 return Some(packet);
             }
         }
-        _ => panic!("unknown icmp packet\n\x00"),
     }
     None
 }

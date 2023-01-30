@@ -1,4 +1,4 @@
-use crate::kernel::{cprint, kalloc, kfree};
+use crate::kernel::{kalloc, kfree};
 use crate::mm::PAGE_SIZE;
 
 use core::alloc::{GlobalAlloc, Layout};

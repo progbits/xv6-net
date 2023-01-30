@@ -1,13 +1,12 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::format;
 
 use crate::ethernet::{EthernetAddress, EthernetFrame, Ethertype};
 use crate::ip::Ipv4Addr;
-use crate::kernel::cprint;
 use crate::net::NetworkDevice;
 use crate::packet_buffer::{FromBuffer, PacketBuffer, ToBuffer, BUFFER_SIZE};
-use crate::spinlock::Spinlock;
+
+const ARP_PACKET_SIZE: usize = 28;
 
 pub struct ArpCache {
     cache: BTreeMap<Ipv4Addr, EthernetAddress>,
@@ -103,8 +102,8 @@ impl ProtocolType {
 
     fn as_bytes(&self) -> [u8; 2] {
         match self {
-            ProtocolType::Ipv4 => 0x0800u16.to_be_bytes(),
-            ProtocolType::Unknown => 0x0000u16.to_be_bytes(),
+            ProtocolType::Ipv4 => [0x08, 0x00],
+            ProtocolType::Unknown => [0x00, 0x00],
         }
     }
 }
@@ -185,7 +184,7 @@ impl FromBuffer for ArpPacket {
     }
 
     fn size(&self) -> usize {
-        28
+        ARP_PACKET_SIZE
     }
 }
 
@@ -205,6 +204,6 @@ impl ToBuffer for ArpPacket {
     }
 
     fn size(&self) -> usize {
-        28
+        ARP_PACKET_SIZE
     }
 }

@@ -1,5 +1,3 @@
-use alloc::format;
-use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::packet_buffer::{FromBuffer, ToBuffer};
@@ -41,21 +39,21 @@ pub enum Type {
     Reserved,
     DestinationUnreachable,
     SourceQuench,
-    RedirectMessage,
+    _RedirectMessage,
     EchoRequest,
-    RouterAdvertisement,
-    RouterSolicitation,
-    TimeExceeded,
-    ParameterProblem,
-    Timestamp,
-    TimestampReply,
-    InformationRequest,
-    InformationReply,
-    AddressMaskRequest,
-    AddressMaskReply,
-    Traceroute,
-    ExtendedEchoRequest,
-    ExtendedEchoReply,
+    _RouterAdvertisement,
+    _RouterSolicitation,
+    _TimeExceeded,
+    _ParameterProblem,
+    _Timestamp,
+    _TimestampReply,
+    _InformationRequest,
+    _InformationReply,
+    _AddressMaskRequest,
+    _AddressMaskReply,
+    _Traceroute,
+    _ExtendedEchoRequest,
+    _ExtendedEchoReply,
     Unknown,
 }
 
@@ -75,8 +73,7 @@ impl Type {
     pub fn as_bytes(&self) -> u8 {
         match self {
             Type::EchoReply => 0x00u8,
-            Type::Reserved => 0x01u8,
-            Type::Reserved => 0x02u8,
+            Type::Reserved => 0x01u8, // and 0x02u8
             Type::DestinationUnreachable => 0x03u8,
             Type::SourceQuench => 0x04u8,
             Type::EchoRequest => 0x08u8,
