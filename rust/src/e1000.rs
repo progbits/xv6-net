@@ -7,7 +7,7 @@ use crate::kernel::{ioapicenable, kalloc};
 use crate::mm::{PhysicalAddress, VirtualAddress, PAGE_SIZE};
 use crate::net::NetworkDevice;
 use crate::packet_buffer::PacketBuffer;
-use crate::pci;
+use crate::pci::PciConfig;
 
 const IRQ_PIC0: u32 = 0xB;
 
@@ -150,26 +150,38 @@ impl E1000 {
 
         // Enumerate the first four devices on the first PCI bus.
         // TODO: Move this out to a more generic PCI `probe` routine.
-        let mut target_device: Option<u32> = None;
+        let mut target_device: Option<PciConfig> = None;
         for device in 0..4 {
-            let device_addr: u32 = 0x80000000 | (device << 11);
+            // Calculate the base address of the current device and load the
+            // PCI configuration struct for the device at the address.
+            let base_addr: u32 = 0x80000000 | (device << 11);
+            let pci_config = match PciConfig::new(base_addr) {
+                Ok(x) => {
+                    // Check if the device and vendor id match those of an
+                    // E1000 device.
+                    if x.vendor_id() != VENDOR_ID {
+                        continue;
+                    }
+                    if x.device_id() != DEVICE_ID {
+                        continue;
+                    }
 
-            // Read the vendor and device id of the current device.
-            let vendor_id = pci::read_vendor_id(device_addr);
-            let device_id = pci::read_device_id(device_addr);
-            if vendor_id == VENDOR_ID && device_id == DEVICE_ID {
-                target_device = Some(device);
-                break;
-            }
+                    // Device is an E1000, stop searching.
+                    target_device = Some(x);
+                    break;
+                }
+                Err(_) => continue,
+            };
         }
 
         if target_device.is_none() {
             panic!("no network device\n\x00");
         }
 
-        // Configure the device command register and read the MMIO base register.
-        pci::set_bus_master(target_device.unwrap());
-        e1000.mmio_base = pci::read_bar(target_device.unwrap(), 0);
+        // Configure the device command register and read the first BAR
+        // register as the MMIO base register.
+        target_device.as_ref().unwrap().set_bus_master();
+        e1000.mmio_base = target_device.unwrap().bar(0);
 
         // Read the MAC address.
         // TODO: Lock EEPROM.
@@ -356,7 +368,8 @@ impl NetworkDevice for E1000 {
             } else if mask & InterruptMask::TXQE as u32 != 0 {
                 // cprint(b"e1000: tx queue empty\n\x00".as_ptr());
             } else if mask & InterruptMask::LSC as u32 != 0 {
-                // cprint(b"e1000: link status change seq error\n\x00".as_ptr());
+                // cprint(b"e1000: link status change seq
+                // error\n\x00".as_ptr());
             } else if mask & InterruptMask::RXSEQ as u32 != 0 {
                 // cprint(b"e1000: rx seq error\n\x00".as_ptr());
             } else if mask & InterruptMask::RXDMTO as u32 != 0 {
